@@ -250,8 +250,9 @@ async function runTraceCollection(
   ];
 
   // Set environment variables for the trace collector
+  // TRACE_MAX_STEPS and TRACE_OUTPUT are read by trace_collector.py
   const env = [
-    `MAX_STEPS=${maxSteps}`,
+    `TRACE_MAX_STEPS=${maxSteps}`,
     `TRACE_OUTPUT=/workspace/trace.json`,
   ];
 

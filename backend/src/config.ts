@@ -17,7 +17,7 @@ export const config = {
   NODE_ENV: (process.env.NODE_ENV || 'development') as 'development' | 'production',
 
   /** Docker image name for the code executor container */
-  EXECUTOR_IMAGE: process.env.EXECUTOR_IMAGE || 'dsa-visualizer-executor:latest',
+  EXECUTOR_IMAGE: process.env.EXECUTOR_IMAGE || 'dsa-executor:latest',
 
   /** Maximum time allowed for compilation in milliseconds (default: 30 seconds) */
   MAX_COMPILE_TIMEOUT_MS: parseInt(process.env.MAX_COMPILE_TIMEOUT_MS || '30000', 10),

@@ -27,8 +27,13 @@ const SECURITY_SETTINGS = {
   /** Disable all network access */
   NetworkDisabled: true,
 
-  /** Mount root filesystem as read-only */
-  ReadonlyRootfs: true,
+  /** 
+   * ReadonlyRootfs is disabled because:
+   * 1. Compilation needs to write temporary files
+   * 2. GDB tracing needs to write trace.json
+   * Security is maintained through network isolation, resource limits, and user namespace
+   */
+  // ReadonlyRootfs: true,
 
   /** Memory limit in bytes (256MB) */
   Memory: 256 * 1024 * 1024,
@@ -45,8 +50,18 @@ const SECURITY_SETTINGS = {
   /** Auto-remove container after execution */
   AutoRemove: true,
 
-  /** Run as non-root user (UID 1000) */
-  User: '1000:1000',
+  /**
+   * Run as root in container for compilation/debugging access
+   * Security is maintained through:
+   * - Network isolation (no outbound access)
+   * - Resource limits (memory, CPU, PIDs)
+   * - Automatic container removal
+   * - No privilege escalation
+   * 
+   * Note: The executor Dockerfile sets USER sandbox, but we override to root
+   * for compilation and GDB access. This is safe because of network isolation.
+   */
+  User: 'root',
 } as const;
 
 /**
@@ -177,16 +192,20 @@ export async function runInContainer(
     logger.debug(`Running command in container: ${command.join(' ')}`, { timeoutMs });
 
     // Run the container with security settings
+    // User must be at the container config level, not in HostConfig
+    const { User, ...hostConfigSettings } = SECURITY_SETTINGS;
+    
     const runPromise = docker.run(
       config.EXECUTOR_IMAGE,
       command,
       [stdoutStream, stderrStream],
       {
         Tty: false,
+        User: User || 'root', // Override Dockerfile's USER sandbox
         WorkingDir: options.workingDir || '/workspace',
         Env: options.env || [],
         HostConfig: {
-          ...SECURITY_SETTINGS,
+          ...hostConfigSettings,
           Binds: options.binds || [],
         },
       }

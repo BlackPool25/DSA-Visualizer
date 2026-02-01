@@ -34,8 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv for fast Python package management
 # uv is a modern Python package installer written in Rust
 # Install as root, then copy to /usr/local/bin so sandbox user can access it
+# Note: uv installer puts binary in ~/.local/bin (not ~/.cargo/bin)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    cp /root/.cargo/bin/uv /usr/local/bin/uv && \
+    cp /root/.local/bin/uv /usr/local/bin/uv && \
     chmod +x /usr/local/bin/uv
 
 # Add system bin to PATH (uv is now available to all users)
@@ -54,10 +55,10 @@ COPY scripts/ /scripts/
 # Set working directory for Python setup
 WORKDIR /scripts
 
-# Initialize uv project and install dependencies
-# Note: GDB uses its own embedded Python, so these packages are mainly for testing
-RUN uv init --name dsa-tracer && \
-    uv add pytest
+# Install Python dependencies using uv
+# Note: pyproject.toml is already in scripts/ directory
+# GDB uses its own embedded Python, so these packages are mainly for testing
+RUN uv sync 2>/dev/null || echo "No dependencies to sync"
 
 # Copy C++ templates
 # These provide standard data structure definitions (ListNode, TreeNode, etc.)

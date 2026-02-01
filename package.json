@@ -5,8 +5,7 @@
   "type": "module",
   "workspaces": [
     "shared",
-    "backend",
-    "frontend"
+    "backend"
   ],
   "scripts": {
     "dev": "bun --filter '*' dev",

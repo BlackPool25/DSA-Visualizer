@@ -319,16 +319,34 @@ class TraceCollector:
         """
         Write the collected trace to the output file.
 
-        Serializes the trace list to JSON and writes to disk.
-        This should be called when tracing completes or on error.
+        Serializes the trace to JSON in the format expected by the backend:
+        {
+            "steps": [...],
+            "totalSteps": N,
+            "executionTime": M
+        }
 
         Note:
             We use a try-except block to ensure we always attempt to write,
             even if there were errors during collection.
         """
         try:
+            import time
+            
+            # Calculate execution time (approximate - from first to last step)
+            execution_time = 0
+            if hasattr(self, '_start_time'):
+                execution_time = int((time.time() - self._start_time) * 1000)
+            
+            # Format output to match backend Zod schema (FullTraceSchema)
+            output = {
+                "steps": self.trace,
+                "totalSteps": len(self.trace),
+                "executionTime": execution_time
+            }
+            
             with open(self.output_file, "w") as f:
-                json.dump(self.trace, f, indent=2)
+                json.dump(output, f, indent=2)
             print(f"Trace written to {self.output_file} ({len(self.trace)} steps)")
         except Exception as e:
             print(f"Error writing trace file: {e}")
@@ -351,6 +369,9 @@ class TraceCollector:
             This method blocks until the program finishes or max_steps is reached.
             GDB must be started with the target program already loaded.
         """
+        import time
+        self._start_time = time.time()  # Track execution time for output
+        
         try:
             # Register our stop handler with GDB
             # GDB will call this function whenever execution stops
