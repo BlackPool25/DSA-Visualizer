@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # React frontend development server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dsa-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./frontend:/app
+      # Persist node_modules to avoid reinstalling
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:4000
+    depends_on:
+      - backend
+    networks:
+      - dsa-network
+
+  # Express API backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dsa-backend
+    ports:
+      - "4000:4000"
+    volumes:
+      # Mount source code for hot reload
+      - ./backend:/app
+      # Persist node_modules
+      - /app/node_modules
+      # Shared types (read-only)
+      - ./shared:/app/shared:ro
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+      - EXECUTOR_SERVICE_NAME=executor
+      - EXECUTOR_NETWORK=dsa-network
+    depends_on:
+      - executor
+    networks:
+      - dsa-network
+
+  # Sandboxed C++ execution environment
+  # SECURITY CRITICAL: This container runs untrusted user code
+  executor:
+    build:
+      context: ./executor
+      dockerfile: Dockerfile
+    container_name: dsa-executor
+    # No exposed ports - backend communicates via Docker API
+    # Security settings to sandbox untrusted code execution
+    privileged: false
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      # Temporary writable directories
+      - /tmp:noexec,nosuid,size=100m
+      - /workspace:noexec,nosuid,size=50m
+    network_mode: none
+    mem_limit: 512m
+    cpus: '0.50'
+    # Prevent container from gaining additional privileges
+    cap_drop:
+      - ALL
+    # No capabilities needed for sandboxed GDB execution
+
+networks:
+  dsa-network:
+    driver: bridge
+    name: dsa-network
