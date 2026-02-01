@@ -1,31 +1,31 @@
-version: '3.8'
+# Docker Compose configuration for DSA Visualizer
+# Note: 'version' field is obsolete in modern Docker Compose
 
 services:
   # React frontend development server
-  # NOTE: Frontend is Phase 4 - uncomment when frontend/ directory exists
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: dsa-frontend
-  #   ports:
-  #     - "3000:3000"
-  #   volumes:
-  #     - ./frontend:/app
-  #     - /app/node_modules
-  #   environment:
-  #     - NODE_ENV=development
-  #     - VITE_API_URL=http://localhost:4000
-  #   depends_on:
-  #     - backend
-  #   networks:
-  #     - dsa-network
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: dsa-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:4000
+    depends_on:
+      - backend
+    networks:
+      - dsa-network
 
   # Express API backend
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: dsa-backend
     ports:
       - "4000:4000"
@@ -36,6 +36,8 @@ services:
       - /app/node_modules
       # Shared types (read-only)
       - ./shared:/app/shared:ro
+      # C++ template headers (read-only)
+      - ./executor/templates:/app/templates:ro
       # Docker socket for spawning executor containers
       - /var/run/docker.sock:/var/run/docker.sock
       # Shared temp directory for code files (must be same path as host for Docker bind mounts)

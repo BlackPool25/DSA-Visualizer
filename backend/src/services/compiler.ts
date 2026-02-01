@@ -23,6 +23,8 @@ import {
   isValidBinaryId,
 } from '../utils/tempFiles.js';
 import { runInContainer } from './docker.js';
+import { copyFile } from 'fs/promises';
+import { join } from 'path';
 
 /**
  * Options for compilation.
@@ -73,7 +75,26 @@ export interface CompileResult {
 }
 
 /** Default compiler flags for debug builds */
-const DEFAULT_FLAGS = ['-g', '-O0', '-std=c++17', '-Wall', '-Wextra'];
+const DEFAULT_FLAGS = ['-g', '-O0', '-std=c++17', '-Wall', '-Wextra', '-I/templates'];
+
+/** Path to C++ template headers (in backend container at /app/templates) */
+const TEMPLATES_DIR = join('/app', 'templates');
+const TEMPLATE_FILES = ['structures.hpp', 'deserializers.hpp', 'serializers.hpp'];
+
+/**
+ * Copies template header files to the temporary workspace directory.
+ * These templates provide common data structures (ListNode, TreeNode, etc.)
+ * and serialization/deserialization functions.
+ * 
+ * @param destDir - Destination directory path
+ */
+async function copyTemplatesToWorkspace(destDir: string): Promise<void> {
+  for (const file of TEMPLATE_FILES) {
+    const srcPath = join(TEMPLATES_DIR, file);
+    const destPath = join(destDir, file);
+    await copyFile(srcPath, destPath);
+  }
+}
 
 /**
  * Compiles C++ source code inside the executor container.
@@ -97,6 +118,9 @@ export async function compileCode(
   try {
     // Create temporary directory for this compilation
     const { id: binaryId, dirPath } = await createTempDirectory();
+
+    // Copy template headers to workspace
+    await copyTemplatesToWorkspace(dirPath);
 
     // Write source file to temp directory
     await writeSourceFile(dirPath, 'solution.cpp', code);

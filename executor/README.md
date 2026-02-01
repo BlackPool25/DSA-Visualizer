@@ -208,61 +208,83 @@ g++ -g -std=c++17 binary_tree_inorder.cpp -o binary_tree_inorder
 
 ## Output Format
 
-The trace collector produces a JSON array of TraceStep objects:
+The trace collector produces a JSON object with the following structure:
 
 ```json
-[
-  {
-    "stepIndex": 0,
-    "line": 10,
-    "file": "solution.cpp",
-    "event": "line",
-    "callStack": [
-      {
-        "frameId": "frame_0",
-        "function": "main",
-        "file": "solution.cpp",
-        "line": 10,
-        "locals": {
-          "head": {
-            "kind": "pointer",
-            "type": "ListNode*",
-            "ref": "addr_0x7fff1234"
-          },
-          "n": {
-            "kind": "primitive",
-            "type": "int",
-            "value": 5
+{
+  "steps": [
+    {
+      "stepIndex": 0,
+      "line": 10,
+      "file": "solution.cpp",
+      "event": "line",
+      "callStack": [
+        {
+          "frameId": "frame_0",
+          "function": "main",
+          "file": "solution.cpp",
+          "line": 10,
+          "locals": {
+            "head": {
+              "kind": "pointer",
+              "type": "ListNode*",
+              "ref": "addr_0x7fff1234"
+            },
+            "n": {
+              "kind": "primitive",
+              "type": "int",
+              "value": 5
+            }
           }
         }
-      }
-    ],
-    "heap": {
-      "addr_0x7fff1234": {
-        "kind": "heap_object",
-        "type": "ListNode",
-        "fields": {
-          "val": {"kind": "primitive", "type": "int", "value": 1},
-          "next": {"kind": "pointer", "type": "ListNode*", "ref": "addr_0x7fff5678"}
+      ],
+      "heap": {
+        "addr_0x7fff1234": {
+          "kind": "heap_object",
+          "type": "ListNode",
+          "fields": {
+            "val": {"kind": "primitive", "type": "int", "value": 1},
+            "next": {"kind": "pointer", "type": "ListNode*", "ref": "addr_0x7fff5678"}
+          }
         }
-      }
-    },
-    "stdout": ""
-  }
-]
+      },
+      "stdout": ""
+    }
+  ],
+  "totalSteps": 1,
+  "executionTime": 42
+}
 ```
+
+**Fields:**
+- `steps`: Array of TraceStep objects representing each execution step
+- `totalSteps`: Total number of steps captured
+- `executionTime`: Execution time in milliseconds
 
 ## Security
 
 The executor implements several security measures:
 
-1. **Non-root user**: Code runs as `sandbox` user (UID 1000), not root
-2. **No network**: Container has no network access in docker-compose.yml
-3. **Read-only filesystem**: With tmpfs for temporary files only
-4. **Resource limits**: Memory and CPU constraints via Docker
-5. **No new privileges**: Prevents privilege escalation
+### Container Security
 
-Docker Compose configuration:
+1. **Non-root user**: Code runs as `sandbox` user (UID 1000), not root
+2. **Fixed UID**: User created with fixed UID 1000 for consistency
+3. **No network**: Container has no network access in docker-compose.yml
+4. **Read-only filesystem**: With tmpfs for temporary files only
+5. **Resource limits**: Memory and CPU constraints via Docker
+6. **No new privileges**: Prevents privilege escalation
+7. **Immutable scripts**: `/scripts` directory is owned by root and read-only
+
+### Input Validation
+
+The `run_traced.sh` script includes security validations:
+
+- **Path traversal prevention**: Rejects paths containing `..`
+- **Workspace restriction**: Binaries must be within `/workspace`
+- **Environment variable sanitization**: Rejects suspicious characters in env vars
+- **Max steps validation**: Ensures `TRACE_MAX_STEPS` is a positive integer
+
+### Docker Compose Configuration
 ```yaml
 executor:
   network_mode: none

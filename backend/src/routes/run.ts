@@ -9,14 +9,14 @@
  *          or { success: false, error: string }
  */
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Router as RouterType, type Request, type Response } from 'express';
 import { runBinary, type RunResult } from '../services/executor.js';
 import { validate, schemas, type RunRequest } from '../middleware/validation.js';
 import { compileRateLimiter } from '../middleware/rateLimiter.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 
-const router = Router();
+const router: RouterType = Router();
 
 /**
  * POST /api/run

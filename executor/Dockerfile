@@ -67,10 +67,22 @@ COPY templates/ /templates/
 # Create non-root user for code execution
 # Running as non-root limits damage if sandbox is compromised
 # UID 1000 is standard for first non-root user
-RUN useradd -m -u 1000 sandbox
+# The user is created with:
+#   -m: Create home directory
+#   -u 1000: Fixed UID for consistency
+#   -s /bin/bash: Bash shell for debugging
+#   --no-log-init: Don't create lastlog/faillog entries (smaller image)
+RUN useradd -m -u 1000 -s /bin/bash --no-log-init sandbox
 
 # Set ownership of workspace to sandbox user
+# The sandbox user needs write access to /workspace for:
+#   - Compiling user code (writes object files and binary)
+#   - Writing trace output files
 RUN chown -R sandbox:sandbox /workspace
+
+# Security: Set restrictive permissions on scripts directory
+# The sandbox user needs read/execute for GDB scripts but shouldn't modify them
+RUN chmod -R 755 /scripts && chown -R root:root /scripts
 
 # Switch to non-root user for security
 USER sandbox

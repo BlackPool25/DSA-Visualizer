@@ -10,14 +10,14 @@
  *          or { success: false, error: string, compileErrors?: CompileError[] }
  */
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Router as RouterType, type Request, type Response } from 'express';
 import { traceExecution, type TraceResult } from '../services/tracer.js';
 import { validate, schemas, type TraceRequest } from '../middleware/validation.js';
 import { traceRateLimiter } from '../middleware/rateLimiter.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 
-const router = Router();
+const router: RouterType = Router();
 
 /**
  * POST /api/trace

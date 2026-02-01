@@ -5,7 +5,8 @@
   "type": "module",
   "workspaces": [
     "shared",
-    "backend"
+    "backend",
+    "frontend"
   ],
   "scripts": {
     "dev": "bun --filter '*' dev",
@@ -21,5 +22,8 @@
   "engines": {
     "node": ">=20.0.0",
     "bun": ">=1.0.0"
-  }
+  },
+  "trustedDependencies": [
+    "protobufjs"
+  ]
 }

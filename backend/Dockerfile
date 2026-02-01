@@ -19,14 +19,33 @@ WORKDIR /app
 # The backend needs to spawn executor containers via Docker API
 RUN apk add --no-cache docker-cli curl
 
-# Copy package files first for better layer caching
-COPY package.json bun.lockb* ./
+# Copy shared package first (dependency of backend)
+COPY shared /shared
+WORKDIR /shared
+RUN bun install && bun run build
 
-# Install dependencies (will be overwritten by volume mount in dev)
+# Back to backend directory
+WORKDIR /app
+
+# Copy backend package files
+COPY backend/package.json ./
+
+# Install dependencies using Bun (will generate bun.lock if missing)
+RUN bun install
+
+# Copy backend source code
+COPY backend/src ./src
+COPY backend/tests ./tests
+COPY backend/tsconfig.json ./
+
+# Copy C++ template headers from executor
+# These are needed for harness generation and compilation
+COPY executor/templates ./templates
+
+# Build TypeScript to JavaScript
+
+# Install dependencies (now that shared is available)
 RUN bun install --frozen-lockfile 2>/dev/null || bun install
-
-# Copy source code
-COPY . .
 
 # Create temp directory for code compilation
 RUN mkdir -p /tmp/dsa-visualizer && chmod 777 /tmp/dsa-visualizer

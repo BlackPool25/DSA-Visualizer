@@ -1,26 +1,33 @@
 /**
  * @file index.ts
  * @description Route aggregator that combines all API routes.
- * Mounts compile, run, and trace routes under /api/* prefix.
+ * Mounts compile, run, trace, problems, and harness routes under /api/* prefix.
  */
 
-import { Router } from 'express';
+import { Router, type Router as RouterType } from 'express';
 import { getDockerClient } from '../services/docker.js';
 import compileRouter from './compile.js';
 import runRouter from './run.js';
 import traceRouter from './trace.js';
+import problemsRouter from './problems.js';
+import harnessRouter from './harness.js';
 
-const router = Router();
+const router: RouterType = Router();
 
 /**
  * Mount route handlers:
  * - POST /api/compile - Compile C++ code
  * - POST /api/run - Execute compiled binary
  * - POST /api/trace - Generate execution trace
+ * - GET  /api/problems - List LeetCode problems
+ * - GET  /api/problems/:slug - Get problem details
+ * - POST /api/harness - Generate C++ harness code
  */
 router.use('/compile', compileRouter);
 router.use('/run', runRouter);
 router.use('/trace', traceRouter);
+router.use('/problems', problemsRouter);
+router.use('/harness', harnessRouter);
 
 /**
  * Health check endpoint at /api/health

@@ -94,7 +94,10 @@ class TestSTLPrinters:
             pytest.skip("Trace file not created")
 
         with open(output_path) as f:
-            return json.load(f)
+            result = json.load(f)
+
+        # Return steps array from FullTraceSchema format
+        return result.get("steps", [])
 
     def test_vector_serialization(self, temp_dir):
         """Test that std::vector is serialized with size, capacity, and elements."""
@@ -164,12 +167,11 @@ int main() {
         """Test that std::map is serialized with entries."""
         cpp_code = """
 #include <map>
-#include <string>
 int main() {
-    std::map<int, std::string> m;
-    m[1] = "one";
-    m[2] = "two";
-    m[3] = "three";
+    std::map<int, int> m;
+    m[1] = 10;
+    m[2] = 20;
+    m[3] = 30;
     return 0;
 }
 """

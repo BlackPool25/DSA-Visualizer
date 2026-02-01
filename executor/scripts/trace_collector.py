@@ -50,10 +50,17 @@ GDB Python Environment:
     - Only the 'gdb' module is special (provided by GDB)
 """
 
-# Add /scripts to Python path so GDB can find our modules
+# Add script directory to Python path so GDB can find our modules
+# When running in Docker, /scripts is the correct path
+# When running locally, we use the script's directory
 import sys
+import os
 
-sys.path.insert(0, "/scripts")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
+# Also try /scripts for Docker compatibility
+if os.path.exists("/scripts"):
+    sys.path.insert(0, "/scripts")
 
 import gdb
 import json
@@ -80,6 +87,7 @@ class TraceCollector:
         step_count: Current step number
         output_file: Path to write trace JSON
         stdout_buffer: Accumulated stdout from the inferior
+        stdout_file: Temporary file path for capturing stdout
     """
 
     def __init__(self, output_file: str = "trace.json", max_steps: int = 1000):
@@ -96,9 +104,10 @@ class TraceCollector:
         self.step_count = 0
         self.output_file = output_file
         self.stdout_buffer = ""
+        self.stdout_file = "/tmp/gdb_stdout_capture.txt"
         self._stop_event_connection = None
 
-    def stop_handler(self, event: gdb.StopEvent) -> None:
+    def stop_handler(self, event) -> None:
         """
         Called by GDB when execution stops (breakpoint, step, signal, etc.).
 
@@ -118,6 +127,9 @@ class TraceCollector:
             return
 
         try:
+            # Read any new stdout from the inferior before capturing state
+            self.read_stdout()
+
             # Capture current program state
             state = self.capture_state()
             self.trace.append(state)
@@ -332,19 +344,19 @@ class TraceCollector:
         """
         try:
             import time
-            
+
             # Calculate execution time (approximate - from first to last step)
             execution_time = 0
-            if hasattr(self, '_start_time'):
+            if hasattr(self, "_start_time"):
                 execution_time = int((time.time() - self._start_time) * 1000)
-            
+
             # Format output to match backend Zod schema (FullTraceSchema)
             output = {
                 "steps": self.trace,
                 "totalSteps": len(self.trace),
-                "executionTime": execution_time
+                "executionTime": execution_time,
             }
-            
+
             with open(self.output_file, "w") as f:
                 json.dump(output, f, indent=2)
             print(f"Trace written to {self.output_file} ({len(self.trace)} steps)")
@@ -354,24 +366,83 @@ class TraceCollector:
 
             traceback.print_exc()
 
+    def setup_stdout_capture(self) -> None:
+        """
+        Set up stdout capture by creating a fresh output file.
+
+        We'll redirect the inferior's stdout using the 'run' command with
+        shell redirection. This separates the inferior's output from GDB's
+        internal messages.
+
+        Note:
+            This must be called before running the program to capture all output.
+            The output file is read after each step to populate the stdout field.
+        """
+        try:
+            # Remove any existing output file to start fresh
+            import os
+
+            if os.path.exists(self.stdout_file):
+                os.remove(self.stdout_file)
+            
+            # Create empty file
+            open(self.stdout_file, 'w').close()
+        except Exception as e:
+            print(f"Warning: Could not set up stdout file: {e}")
+
+    def read_stdout(self) -> str:
+        """
+        Read accumulated stdout from the output file.
+
+        This reads the complete output from the inferior process.
+        The file is populated by the inferior as it runs, thanks to
+        the shell redirection in the 'run' command.
+
+        Returns:
+            New output since the last read.
+
+        Note:
+            We read the entire file and track what we've seen to maintain
+            cumulative output. Each step's stdout field contains all output
+            produced up to that point in execution.
+        """
+        try:
+            import os
+
+            if os.path.exists(self.stdout_file):
+                with open(self.stdout_file, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+                # Update buffer with complete content
+                # The trace step will get the complete buffer (cumulative output)
+                if len(content) > len(self.stdout_buffer):
+                    new_content = content[len(self.stdout_buffer) :]
+                    self.stdout_buffer = content
+                    return new_content
+            return ""
+        except Exception as e:
+            print(f"Warning: Could not read stdout: {e}")
+            return ""
+
     def run(self) -> None:
         """
         Main entry point. Sets up tracing and runs the program.
 
         Execution sequence:
         1. Register stop event handler with gdb.events.stop
-        2. Set breakpoint at main() to start tracing from the beginning
-        3. Run the program (will hit main breakpoint)
-        4. Continue execution, stop_handler will be called at each step
-        5. When program exits, write_trace() is called automatically
+        2. Set up stdout capture via GDB logging
+        3. Set breakpoint at main() to start tracing from the beginning
+        4. Run the program (will hit main breakpoint)
+        5. Continue execution, stop_handler will be called at each step
+        6. When program exits, write_trace() is called automatically
 
         Note:
             This method blocks until the program finishes or max_steps is reached.
             GDB must be started with the target program already loaded.
         """
         import time
+
         self._start_time = time.time()  # Track execution time for output
-        
+
         try:
             # Register our stop handler with GDB
             # GDB will call this function whenever execution stops
@@ -382,12 +453,27 @@ class TraceCollector:
             gdb.execute("set confirm off")  # Don't ask for confirmation
             gdb.execute("set print null-stop")  # Stop at null in strings
 
+            # Set up stdout capture before running
+            self.setup_stdout_capture()
+
             # Set breakpoint at main to start tracing from the beginning
             gdb.execute("break main")
 
             # Run the program - will stop at main breakpoint
+            # Redirect stdout to capture file, and stdin if provided
             print("Starting trace collection...")
-            gdb.execute("run")
+            input_file = os.environ.get("STDIN_INPUT_FILE", "")
+
+            # Build run command with redirections
+            # We use shell redirection to capture the inferior's output separately from GDB's output
+            run_cmd = "run"
+            if input_file and os.path.exists(input_file):
+                run_cmd += f" < {input_file}"
+            # Redirect stdout to capture file (use > for initial write, not >>)
+            # This ensures we capture only the inferior's output, not GDB messages
+            run_cmd += f" > {self.stdout_file} 2>&1"
+
+            gdb.execute(run_cmd)
 
             # After run() returns, the program has exited
             # Write any remaining trace data
@@ -400,9 +486,13 @@ class TraceCollector:
             traceback.print_exc()
             self.write_trace()
         finally:
-            # Clean up event handler
+            # Clean up event handler and logging
             if self._stop_event_connection:
                 gdb.events.stop.disconnect(self._stop_event_connection)
+            try:
+                gdb.execute("set logging enabled off")
+            except:
+                pass
 
 
 def main():

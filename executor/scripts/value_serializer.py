@@ -86,11 +86,16 @@ def serialize_value(
         return serialize_array(val, heap, visited)
     elif type_code == gdb.TYPE_CODE_STRUCT:
         # Check if this is an STL container first
-        from stl_printers import is_stl_container, serialize_stl_container
-
-        if is_stl_container(type_name):
-            # Pass serialize_value function to avoid circular import
-            return serialize_stl_container(val, heap, visited, serialize_value)
+        # Import here to avoid circular dependency issues
+        try:
+            from stl_printers import is_stl_container, serialize_stl_container
+            
+            if is_stl_container(type_name):
+                # Pass serialize_value function to avoid circular import
+                return serialize_stl_container(val, heap, visited, serialize_value)
+        except ImportError as e:
+            # If stl_printers can't be imported, fall back to struct serialization
+            pass
         return serialize_struct(val, heap, visited)
     elif type_code == gdb.TYPE_CODE_ENUM:
         return serialize_enum(val)

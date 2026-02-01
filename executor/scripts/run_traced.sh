@@ -79,9 +79,51 @@ INPUT_FILE="$2"
 OUTPUT_TRACE="$3"
 MAX_STEPS="${4:-1000}"
 
+# Security: Validate environment variables before use
+# This prevents injection attacks via environment variable manipulation
+validate_env_var() {
+    local var_name="$1"
+    local var_value="$2"
+    # Check for suspicious characters that could indicate injection
+    if [[ "$var_value" =~ [;&|<>$\(\)\`\{]] ]]; then
+        echo "Error: Invalid characters in $var_name environment variable" >&2
+        exit 1
+    fi
+}
+
+# Validate environment variables if set
+if [[ -n "${TRACE_OUTPUT:-}" ]]; then
+    validate_env_var "TRACE_OUTPUT" "$TRACE_OUTPUT"
+fi
+
+if [[ -n "${TRACE_MAX_STEPS:-}" ]]; then
+    validate_env_var "TRACE_MAX_STEPS" "$TRACE_MAX_STEPS"
+    # Validate that MAX_STEPS is a number
+    if ! [[ "$TRACE_MAX_STEPS" =~ ^[0-9]+$ ]]; then
+        echo "Error: TRACE_MAX_STEPS must be a positive integer" >&2
+        exit 1
+    fi
+fi
+
 # Allow environment variables to override arguments
 OUTPUT_TRACE="${TRACE_OUTPUT:-$OUTPUT_TRACE}"
 MAX_STEPS="${TRACE_MAX_STEPS:-$MAX_STEPS}"
+
+# Security: Validate binary path to prevent path traversal attacks
+# Only allow paths within /workspace or relative paths (no .. components)
+if [[ "$BINARY_PATH" == *".."* ]]; then
+    echo "Error: Binary path contains invalid characters (path traversal attempt)" >&2
+    exit 1
+fi
+
+# Security: Ensure binary path is absolute or relative to allowed directories
+if [[ "$BINARY_PATH" =~ ^/ ]]; then
+    # Absolute path - must start with /workspace
+    if [[ ! "$BINARY_PATH" =~ ^/workspace ]]; then
+        echo "Error: Binary path must be within /workspace directory" >&2
+        exit 1
+    fi
+fi
 
 # Validate binary exists and is executable
 if [ ! -f "$BINARY_PATH" ]; then
@@ -137,13 +179,20 @@ echo "  Max Steps: $MAX_STEPS"
 # -ex "set confirm off": Don't ask for confirmation
 # -x <script>: Execute Python script for tracing
 # --args <program>: Program to debug with its arguments
+#
+# Note on stdin handling:
+# We pass the input file path via STDIN_INPUT_FILE environment variable.
+# The trace_collector.py reads this and sets up GDB to redirect stdin.
+# Using GDB's "run < input_file" command ensures stdin works correctly
+# when the inferior runs under GDB's control.
 if ! TRACE_OUTPUT="$OUTPUT_ABS" \
      TRACE_MAX_STEPS="$MAX_STEPS" \
+     STDIN_INPUT_FILE="$INPUT_ABS" \
      gdb -batch -silent \
          -ex "set pagination off" \
          -ex "set confirm off" \
          -x "$TRACE_SCRIPT" \
-         --args "$BINARY_ABS" < "$INPUT_ABS"; then
+         --args "$BINARY_ABS"; then
     echo "Error: GDB execution failed" >&2
     exit 3
 fi
@@ -164,7 +213,7 @@ echo "  Size: $FILE_SIZE bytes"
 
 # Count steps in trace
 if command -v python3 &> /dev/null; then
-    STEP_COUNT=$(python3 -c "import json; data=json.load(open('$OUTPUT_ABS')); print(len(data))" 2>/dev/null || echo "unknown")
+    STEP_COUNT=$(python3 -c "import json; data=json.load(open('$OUTPUT_ABS')); print(len(data.get('steps', [])))" 2>/dev/null || echo "unknown")
     echo "  Steps: $STEP_COUNT"
 fi
 

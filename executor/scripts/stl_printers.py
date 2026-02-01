@@ -41,7 +41,25 @@ std::unordered_map/set:
 """
 
 import gdb
+import sys
 from typing import Any, Dict, Set, Optional, Callable
+
+
+def log_error(operation: str, type_name: str, error: Exception) -> None:
+    """
+    Log detailed error information for STL serialization failures.
+
+    This helper provides structured error logging to help diagnose
+    container serialization issues, especially across different
+    libstdc++ versions.
+
+    Args:
+        operation: The serialization operation that failed (e.g., "vector")
+        type_name: The full type name being serialized
+        error: The exception that was raised
+    """
+    print(f"[STL Printer Error] {operation}: {type_name}", file=sys.stderr)
+    print(f"  Exception: {type(error).__name__}: {error}", file=sys.stderr)
 
 
 def is_stl_container(type_name: str) -> bool:
@@ -56,8 +74,10 @@ def is_stl_container(type_name: str) -> bool:
 
     Note:
         We check prefixes to handle templates with allocators and other parameters.
-        For example, "std::vector<int, std::allocator<int>>" starts with "std::vector<".
+        Also handles different namespace variants like std::__cxx11::list (GCC 5+),
+        std::__1::vector (libc++), etc.
     """
+    # Standard prefixes
     stl_prefixes = [
         "std::vector<",
         "std::deque<",
@@ -70,7 +90,58 @@ def is_stl_container(type_name: str) -> bool:
         "std::queue<",
         "std::priority_queue<",
     ]
-    return any(type_name.startswith(prefix) for prefix in stl_prefixes)
+
+    # Check standard prefixes
+    if any(type_name.startswith(prefix) for prefix in stl_prefixes):
+        return True
+
+    # Handle GCC 5+ namespace variants (std::__cxx11::)
+    # These appear when using new C++11 ABI
+    cxx11_prefixes = [
+        "std::__cxx11::list<",
+        "std::__cxx11::basic_string",
+        "std::__cxx11::string",
+    ]
+    if any(type_name.startswith(prefix) for prefix in cxx11_prefixes):
+        return True
+
+    # Handle libc++ namespace variants (std::__1::)
+    libcxx_prefixes = [
+        "std::__1::vector<",
+        "std::__1::list<",
+        "std::__1::map<",
+        "std::__1::set<",
+        "std::__1::unordered_map<",
+        "std::__1::unordered_set<",
+    ]
+    if any(type_name.startswith(prefix) for prefix in libcxx_prefixes):
+        return True
+
+    return False
+
+
+def normalize_stl_type(type_name: str) -> str:
+    """
+    Normalize STL type name to standard form.
+
+    Converts namespace variants like std::__cxx11::list to std::list
+    so the serializers can handle them uniformly.
+
+    Args:
+        type_name: The raw type name from GDB
+
+    Returns:
+        Normalized type name with standard std:: prefix
+    """
+    # Handle GCC 5+ __cxx11 namespace
+    if "std::__cxx11::" in type_name:
+        return type_name.replace("std::__cxx11::", "std::")
+
+    # Handle libc++ __1 namespace
+    if "std::__1::" in type_name:
+        return type_name.replace("std::__1::", "std::")
+
+    return type_name
 
 
 def serialize_stl_container(
@@ -80,6 +151,7 @@ def serialize_stl_container(
     Main dispatcher for STL container serialization.
 
     Routes to specific serializers based on container type.
+    Handles namespace variants (std::__cxx11::, std::__1::) by normalizing type names.
 
     Args:
         val: GDB Value of an STL container
@@ -94,7 +166,7 @@ def serialize_stl_container(
         Container adapters (stack, queue, priority_queue) are detected and
         handled by serializing their underlying container.
     """
-    type_name = str(val.type)
+    type_name = normalize_stl_type(str(val.type))
 
     if type_name.startswith("std::vector<"):
         return serialize_vector(val, heap, visited, serialize_value)
@@ -185,11 +257,13 @@ def serialize_vector(
             "elements": elements,
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_vector", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "vector",
             "error": f"Could not serialize vector: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -262,11 +336,13 @@ def serialize_deque(
             "elements": elements,
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_deque", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "deque",
             "error": f"Could not serialize deque: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -362,11 +438,13 @@ def serialize_list(
             "nodes": nodes,
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_list", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "list",
             "error": f"Could not serialize list: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -410,11 +488,7 @@ def serialize_map(
             if int(node) == 0:
                 return
 
-            # Traverse left subtree
-            left = node["_M_left"]
-            traverse_tree(left)
-
-            # Process current node
+            # Process current node first (pre-order is safer for debugging)
             try:
                 pair = node["_M_value"]
                 key = pair["first"]
@@ -429,9 +503,21 @@ def serialize_map(
             except gdb.error:
                 pass
 
-            # Traverse right subtree
-            right = node["_M_right"]
-            traverse_tree(right)
+            # Traverse left subtree with error handling
+            try:
+                left = node["_M_left"]
+                if int(left) != 0:
+                    traverse_tree(left)
+            except gdb.error:
+                pass
+
+            # Traverse right subtree with error handling
+            try:
+                right = node["_M_right"]
+                if int(right) != 0:
+                    traverse_tree(right)
+            except gdb.error:
+                pass
 
         traverse_tree(root)
 
@@ -446,11 +532,13 @@ def serialize_map(
             "entries": entries,
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_map", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "map",
             "error": f"Could not serialize map: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -511,11 +599,13 @@ def serialize_set(
             "elements": elements,
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_set", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "set",
             "error": f"Could not serialize set: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -591,11 +681,13 @@ def serialize_unordered_map(
             "entries": entries,
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_unordered_map", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "unordered_map",
             "error": f"Could not serialize unordered_map: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -654,11 +746,13 @@ def serialize_unordered_set(
             "elements": elements,
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_unordered_set", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "unordered_set",
             "error": f"Could not serialize unordered_set: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -702,11 +796,13 @@ def serialize_stack(
             "elements": underlying.get("elements", underlying.get("nodes", [])),
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_stack", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "stack",
             "error": f"Could not serialize stack: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -748,11 +844,13 @@ def serialize_queue(
             "elements": underlying.get("elements", underlying.get("nodes", [])),
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_queue", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "queue",
             "error": f"Could not serialize queue: {str(e)}",
+            "error_type": type(e).__name__,
         }
 
 
@@ -794,9 +892,11 @@ def serialize_priority_queue(
             "elements": underlying.get("elements", []),
         }
     except (gdb.error, KeyError) as e:
+        log_error("serialize_priority_queue", type_name, e)
         return {
             "kind": "stl_container",
             "type": type_name,
             "container_type": "priority_queue",
             "error": f"Could not serialize priority_queue: {str(e)}",
+            "error_type": type(e).__name__,
         }
