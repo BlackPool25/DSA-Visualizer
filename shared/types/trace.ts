@@ -1,6 +1,6 @@
 /**
  * Execution Trace Types
- * 
+ *
  * Defines the schema for GDB execution traces used to visualize
  * algorithm execution step-by-step.
  */
@@ -12,7 +12,7 @@ export interface TraceStep {
   /** Source line number being executed */
   line: number;
   /** Type of execution event */
-  event: 'step' | 'call' | 'return' | 'exception';
+  event: "step" | "call" | "return" | "exception";
   /** Current call stack */
   callStack: StackFrame[];
   /** Heap state (object ID -> object data) */
@@ -56,14 +56,14 @@ export type Value = PrimitiveValue | PointerValue | ContainerValue;
 
 /** Primitive value (number, string, boolean) */
 export interface PrimitiveValue {
-  kind: 'primitive';
+  kind: "primitive";
   value: number | string | boolean;
   type: string;
 }
 
 /** Pointer/reference value */
 export interface PointerValue {
-  kind: 'pointer';
+  kind: "pointer";
   /** Object ID or null if nullptr */
   ref: string | null;
   type: string;
@@ -71,7 +71,7 @@ export interface PointerValue {
 
 /** Container value (arrays, vectors, etc.) */
 export interface ContainerValue {
-  kind: 'container';
+  kind: "container";
   /** Object ID in heap */
   ref: string;
   type: string;
@@ -80,9 +80,13 @@ export interface ContainerValue {
 /** Complete execution trace */
 export interface FullTrace {
   /** Source code being executed */
-  code: string;
+  code?: string;
   /** Execution steps */
   steps: TraceStep[];
+  /** Total number of steps */
+  totalSteps?: number;
+  /** Execution time in milliseconds */
+  executionTime?: number;
   /** Error message if execution failed */
   error?: string;
 }

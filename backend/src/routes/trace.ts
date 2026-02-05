@@ -10,12 +10,21 @@
  *          or { success: false, error: string, compileErrors?: CompileError[] }
  */
 
-import { Router, type Router as RouterType, type Request, type Response } from 'express';
-import { traceExecution, type TraceResult } from '../services/tracer.js';
-import { validate, schemas, type TraceRequest } from '../middleware/validation.js';
-import { traceRateLimiter } from '../middleware/rateLimiter.js';
-import { asyncHandler } from '../middleware/errorHandler.js';
-import { logger } from '../utils/logger.js';
+import {
+  Router,
+  type Router as RouterType,
+  type Request,
+  type Response,
+} from "express";
+import { traceExecution, type TraceResult } from "../services/tracer.js";
+import {
+  validate,
+  schemas,
+  type TraceRequest,
+} from "../middleware/validation.js";
+import { traceRateLimiter } from "../middleware/rateLimiter.js";
+import { asyncHandler } from "../middleware/errorHandler.js";
+import { logger } from "../utils/logger.js";
 
 const router: RouterType = Router();
 
@@ -28,7 +37,7 @@ const router: RouterType = Router();
  * Request body:
  * - code (string, required): C++ source code to trace (max 50KB)
  * - stdin (string, optional): Input to provide to the program (max 1MB)
- * - maxSteps (number, optional): Maximum trace steps to capture (1-5000, default: 1000)
+ * - maxSteps (number, optional): Maximum trace steps to capture (1-10000, default: 5000)
  *
  * Success response (200):
  * - success: true
@@ -45,13 +54,13 @@ const router: RouterType = Router();
  * - compileErrors: Array of compilation errors (if compilation failed)
  */
 router.post(
-  '/',
+  "/",
   traceRateLimiter,
   validate(schemas.trace),
   asyncHandler(async (req: Request, res: Response) => {
     const { code, stdin, maxSteps } = req.body as TraceRequest;
 
-    logger.info('Trace request received', {
+    logger.info("Trace request received", {
       codeLength: code.length,
       hasInput: !!stdin,
       maxSteps,
@@ -65,12 +74,12 @@ router.post(
 
     // Log the result
     if (result.success) {
-      logger.info('Trace generation successful', {
+      logger.info("Trace generation successful", {
         totalSteps: result.trace?.totalSteps,
         duration: result.duration,
       });
     } else {
-      logger.info('Trace generation failed', {
+      logger.info("Trace generation failed", {
         error: result.error,
         hasCompileErrors: !!result.compileErrors,
         duration: result.duration,
@@ -87,12 +96,12 @@ router.post(
     } else {
       res.status(200).json({
         success: false,
-        error: result.error || 'Trace generation failed',
+        error: result.error || "Trace generation failed",
         ...(result.compileErrors && { compileErrors: result.compileErrors }),
         duration: result.duration,
       });
     }
-  })
+  }),
 );
 
 export default router;

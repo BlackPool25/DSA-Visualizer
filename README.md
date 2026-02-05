@@ -5,22 +5,49 @@ An interactive tool for visualizing Data Structures and Algorithms with step-by-
 ## Quick Start
 
 **Prerequisites:**
-- Docker and Docker Compose installed
+
+- Docker and Docker Compose V2 installed
 - **Bun** installed (not npm/yarn): `curl -fsSL https://bun.sh/install | bash`
 - For Python executor scripts: `uv` package manager: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-Run the entire stack using Docker Compose:
+### 🚀 Running the Application
+
+The easiest way to build and run the entire stack:
 
 ```bash
-docker-compose up --build
+# Build all Docker images
+./build.sh
+
+# Start all services
+./start.sh
 ```
 
 This will start:
+
 - **Frontend**: React app at http://localhost:3000
 - **Backend**: Express API at http://localhost:4000
 - **Executor**: Sandboxed C++ execution environment
 
-Once running, visit <http://localhost:3000> and:
+### 📦 Quick Commands
+
+```bash
+# Build Docker images
+./build.sh
+
+# Start services
+./start.sh
+
+# Stop services
+docker compose down
+
+# Clean up old images and temp files
+./clean.sh
+
+# View logs
+docker compose logs -f
+```
+
+### 🎯 Using the Visualizer
 
 1. **Select a problem** from the dropdown (fetched from LeetCode)
 2. **Write your C++ Solution class** - just the class, no main() needed!
@@ -49,6 +76,7 @@ public:
 ```
 
 **The system automatically:**
+
 1. Fetches the problem signature from LeetCode
 2. Wraps your code with:
    - `#include <bits/stdc++.h>` and all necessary headers
@@ -62,6 +90,7 @@ public:
 5. For tracing: Runs under GDB with breakpoints on every line
 
 **You never need to write:**
+
 - `#include` statements
 - `main()` function
 - Input/output handling
@@ -70,6 +99,7 @@ public:
 ### Local Development (Without Docker)
 
 **Backend:**
+
 ```bash
 cd backend
 bun install
@@ -77,6 +107,7 @@ bun run dev  # Starts on port 4000
 ```
 
 **Frontend:**
+
 ```bash
 cd frontend
 bun install
@@ -84,15 +115,148 @@ bun run dev  # Starts on port 3000
 ```
 
 **Shared Types:**
+
 ```bash
 cd shared
 bun install
 bun run build  # Must build before using in backend/frontend
 ```
 
+## 🆕 Recent Updates (February 2026)
+
+### Major Improvements
+
+#### 🎯 Fixed GDB Trace Collection
+
+- **Steps into user functions** - Now properly traces execution inside `Solution` methods
+- **Suppressed GDB warnings** - Clean trace output without Docker/GDB warnings
+- **Increased max steps** - Default: 5000 steps (up from 1000), max: 10000
+- **Better stdout filtering** - Removes GDB debug messages from program output
+- **Proper function stepping** - Uses `set step-mode on` to step into all user code
+
+#### 🐳 Enhanced Docker Error Handling
+
+- **Custom error classes** for Docker operations (`DockerExecutionError`, `DockerTimeoutError`, `DockerConnectionError`, etc.)
+- **Better error context** in API responses with detailed error information
+- **Output size limits** to prevent memory exhaustion (10MB default)
+- **Proper stream cleanup** to avoid resource leaks
+- **Type guards** for error identification (`isDockerExecutionError`, `isDockerTimeoutError`)
+
+#### 🚀 Express Error Handling
+
+- **Async handler wrapper** for automatic promise rejection catching
+- **Structured error responses** with consistent format
+- **Docker-specific error handling** in global error middleware
+- **Improved logging** with error context
+
+#### 💾 Zustand State Persistence
+
+- **Persistent storage** for user code and problem selection
+- **LocalStorage integration** via `zustand/middleware`
+- **Selective persistence** - only saves code/problem, not runtime state
+- **Automatic restoration** on page reload
+
+#### 📝 Monaco Editor Enhancements
+
+- **Validation markers** support for displaying compilation errors
+- **Error/warning indicators** directly in the editor
+- **Better integration** with backend error responses
+
+#### 🔧 Package Management Updates
+
+- **Pure Bun** - Removed all npm artifacts (`package-lock.json`)
+- **Updated backend scripts** to use Bun exclusively (removed `tsx` dependency)
+- **UV for Python** - Python executor scripts use UV exclusively
+
+---
+
+## Docker Container Management
+
+### Rebuilding Docker Containers
+
+After making changes to the executor or when you encounter Docker-related issues:
+
+#### Full Rebuild (Recommended After Major Changes)
+
+```bash
+# Stop all containers
+docker-compose down
+
+# Rebuild the executor image from scratch
+docker-compose build --no-cache executor
+
+# Start all services
+docker-compose up
+```
+
+#### Quick Rebuild (Faster)
+
+```bash
+# Rebuild only the executor
+docker-compose up --build executor
+
+# Or rebuild everything
+docker-compose up --build
+```
+
+#### Verify Executor Image
+
+```bash
+# Check if executor image exists
+docker images | grep dsa-visualizer-executor
+
+# View executor image details
+docker inspect dsa-visualizer-executor:latest
+```
+
+#### Clean Docker Environment
+
+```bash
+# Remove all containers and volumes
+docker-compose down -v
+
+# Remove executor image
+docker rmi dsa-visualizer-executor:latest
+
+# Clean up unused Docker resources
+docker system prune -f
+
+# Rebuild from scratch
+docker-compose up --build
+```
+
+#### Debugging Docker Issues
+
+```bash
+# Check container logs
+docker-compose logs -f executor
+
+# Execute shell in executor container
+docker-compose exec executor /bin/bash
+
+# Check if scripts are present in container
+docker-compose exec executor ls -la /scripts/
+
+# Verify UV installation in container
+docker-compose exec executor uv --version
+```
+
+### Docker Environment Variables
+
+The executor container can be configured via environment variables in `docker-compose.yml`:
+
+```yaml
+environment:
+  - TRACE_MAX_STEPS=1000
+  - TRACE_OUTPUT=/workspace/trace.json
+```
+
+---
+
 ## Recent Updates (Frontend UI Improvements)
 
 ### Fixed Issues
+
 - **Problem Picker API Response**: Fixed handling of backend response - backend returns `Problem[]` directly, not wrapped in `{ problems: [...] }`
 - **Problem Display**: Enhanced problem description with proper formatting for:
   - Problem number displayed with title (e.g., "1. Two Sum")
@@ -104,6 +268,7 @@ bun run build  # Must build before using in backend/frontend
 - **Problem Picker UI**: Improved visibility with enhanced CSS (better borders, contrast, and gradient styling)
 
 ### Component Architecture
+
 - All state management uses **Zustand** for efficient, simple state handling
 - **Monaco Editor** integration with proper controlled component pattern
 - CSS uses **Tailwind CSS** utility classes with custom prose styling for LeetCode-style problem descriptions
@@ -194,6 +359,7 @@ The frontend includes a comprehensive trace visualization system inspired by Pyt
   - Memoized controls to prevent unnecessary re-renders
 
 **Features**:
+
 - ✅ Step-by-step execution visualization
 - ✅ Timeline slider for random access to any step
 - ✅ Auto-play with adjustable speed (0.5x, 1x, 2x, 4x)
@@ -211,35 +377,35 @@ The visualization consumes trace data in the following format (from `shared/type
 
 ```typescript
 interface FullTrace {
-  code: string          // Source code
-  steps: TraceStep[]    // Execution steps
-  error?: string        // Error message if execution failed
+  code: string; // Source code
+  steps: TraceStep[]; // Execution steps
+  error?: string; // Error message if execution failed
 }
 
 interface TraceStep {
-  stepIndex: number                 // 0-based step counter
-  line: number                      // Source line number
-  event: 'step' | 'call' | 'return' | 'exception'
-  callStack: StackFrame[]           // Current call stack
-  heap: Record<string, HeapObject>  // Heap state
-  stdout: string                    // Accumulated stdout
+  stepIndex: number; // 0-based step counter
+  line: number; // Source line number
+  event: "step" | "call" | "return" | "exception";
+  callStack: StackFrame[]; // Current call stack
+  heap: Record<string, HeapObject>; // Heap state
+  stdout: string; // Accumulated stdout
 }
 
 interface StackFrame {
-  frameId: string                   // Unique frame identifier
-  function: string                  // Function name
-  file: string                      // Source file path
-  line: number                      // Current line in function
-  locals: Record<string, Value>     // Local variables
+  frameId: string; // Unique frame identifier
+  function: string; // Function name
+  file: string; // Source file path
+  line: number; // Current line in function
+  locals: Record<string, Value>; // Local variables
 }
 
 interface HeapObject {
-  type: string                      // Type name (e.g., "ListNode", "std::vector")
-  address: string                   // Memory address
-  fields?: Record<string, Value>    // Object fields (for structs)
-  elements?: Value[]                // Array elements (for containers)
-  size?: number                     // Container size
-  capacity?: number                 // Container capacity
+  type: string; // Type name (e.g., "ListNode", "std::vector")
+  address: string; // Memory address
+  fields?: Record<string, Value>; // Object fields (for structs)
+  elements?: Value[]; // Array elements (for containers)
+  size?: number; // Container size
+  capacity?: number; // Container capacity
 }
 
 // Value is a discriminated union: PrimitiveValue | PointerValue | ContainerValue
@@ -248,20 +414,17 @@ interface HeapObject {
 **Usage Example**:
 
 ```tsx
-import { TracePlayback } from './components/Visualizer/TracePlayback'
+import { TracePlayback } from "./components/Visualizer/TracePlayback";
 
 function App() {
-  const [highlightLine, setHighlightLine] = useState<number>()
+  const [highlightLine, setHighlightLine] = useState<number>();
 
   return (
     <div>
       <CodeEditor highlightLine={highlightLine} />
-      <TracePlayback 
-        trace={traceData}
-        onLineChange={setHighlightLine}
-      />
+      <TracePlayback trace={traceData} onLineChange={setHighlightLine} />
     </div>
-  )
+  );
 }
 ```
 
@@ -287,6 +450,7 @@ The backend provides REST endpoints for LeetCode problem fetching, code compilat
 Fetch paginated list of LeetCode problems with optional filters.
 
 **Query Parameters:**
+
 - `page` (number, optional): Page number (1-based, default: 1)
 - `pageSize` (number, optional): Problems per page (1-100, default: 20)
 - `difficulty` (string, optional): Filter by "Easy", "Medium", or "Hard"
@@ -309,6 +473,7 @@ Fetch paginated list of LeetCode problems with optional filters.
 ```
 
 **Example:**
+
 ```bash
 curl "http://localhost:4000/api/problems?difficulty=Easy&pageSize=10"
 ```
@@ -320,6 +485,7 @@ curl "http://localhost:4000/api/problems?difficulty=Easy&pageSize=10"
 Fetch detailed information for a specific problem.
 
 **Path Parameters:**
+
 - `slug` (string): Problem identifier (e.g., "two-sum")
 
 **Response:** `Problem`
@@ -343,6 +509,7 @@ Fetch detailed information for a specific problem.
 ```
 
 **Example:**
+
 ```bash
 curl "http://localhost:4000/api/problems/two-sum"
 ```
@@ -356,6 +523,7 @@ curl "http://localhost:4000/api/problems/two-sum"
 This is the KEY endpoint that enables LeetCode-style execution. It takes just the Solution class and wraps it with all necessary infrastructure.
 
 **Request Body:**
+
 ```json
 {
   "slug": "two-sum",
@@ -365,11 +533,13 @@ This is the KEY endpoint that enables LeetCode-style execution. It takes just th
 ```
 
 **Fields:**
+
 - `slug` or `problemSlug` (string): LeetCode problem identifier
 - `userCode` or `code` (string, optional): User's Solution class. If omitted, uses LeetCode's C++ template
 - `testInput` (string): JSON array of test inputs (e.g., `"[[2,7,11,15], 9]"`)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -393,6 +563,7 @@ This is the KEY endpoint that enables LeetCode-style execution. It takes just th
 ```
 
 **Error Response (400):**
+
 ```json
 {
   "success": false,
@@ -402,6 +573,7 @@ This is the KEY endpoint that enables LeetCode-style execution. It takes just th
 ```
 
 **Example:**
+
 ```bash
 curl -X POST http://localhost:4000/api/harness \
   -H "Content-Type: application/json" \
@@ -419,6 +591,7 @@ curl -X POST http://localhost:4000/api/harness \
 Compile C++ source code (usually the harnessed code from `/harness`).
 
 **Request Body:**
+
 ```json
 {
   "code": "#include <iostream>\nint main() { return 0; }",
@@ -428,11 +601,13 @@ Compile C++ source code (usually the harnessed code from `/harness`).
 ```
 
 **Fields:**
+
 - `code` (string, max 50KB): C++ source code
 - `compiler` (string, optional): "g++" or "clang++" (default: "g++")
 - `flags` (string[], optional): Additional compiler flags
 
 **Success Response (200):**
+
 ```json
 {
   "success": true,
@@ -443,6 +618,7 @@ Compile C++ source code (usually the harnessed code from `/harness`).
 ```
 
 **Compilation Error Response (200):**
+
 ```json
 {
   "success": false,
@@ -458,6 +634,7 @@ Compile C++ source code (usually the harnessed code from `/harness`).
 ```
 
 **Example:**
+
 ```bash
 curl -X POST http://localhost:4000/api/compile \
   -H "Content-Type: application/json" \
@@ -471,6 +648,7 @@ curl -X POST http://localhost:4000/api/compile \
 Execute a compiled binary with optional input.
 
 **Request Body:**
+
 ```json
 {
   "binaryId": "550e8400-e29b-41d4-a716-446655440000",
@@ -479,10 +657,12 @@ Execute a compiled binary with optional input.
 ```
 
 **Fields:**
+
 - `binaryId` (string, UUID): ID from `/compile` response
 - `stdin` (string, optional, max 1MB): Input to provide via stdin
 
 **Response (200):**
+
 ```json
 {
   "success": true,
@@ -495,6 +675,7 @@ Execute a compiled binary with optional input.
 ```
 
 **Example:**
+
 ```bash
 curl -X POST http://localhost:4000/api/run \
   -H "Content-Type: application/json" \
@@ -508,6 +689,7 @@ curl -X POST http://localhost:4000/api/run \
 Generate step-by-step execution trace using GDB.
 
 **Request Body:**
+
 ```json
 {
   "code": "#include <bits/stdc++.h>\n...",
@@ -517,11 +699,13 @@ Generate step-by-step execution trace using GDB.
 ```
 
 **Fields:**
+
 - `code` (string, max 50KB): C++ source code (harnessed code)
 - `stdin` (string, optional, max 1MB): Program input
-- `maxSteps` (number, optional): Max trace steps (1-5000, default: 1000)
+- `maxSteps` (number, optional): Max trace steps (1-10000, default: 5000)
 
 **Response (200):**
+
 ```json
 {
   "success": true,
@@ -543,6 +727,7 @@ Generate step-by-step execution trace using GDB.
 ```
 
 **Example:**
+
 ```bash
 curl -X POST http://localhost:4000/api/trace \
   -H "Content-Type: application/json" \
@@ -554,11 +739,13 @@ curl -X POST http://localhost:4000/api/trace \
 ### 🔒 Security & Rate Limiting
 
 **Rate Limits:**
+
 - Trace: 10 requests/minute (expensive operation)
 - Compile/Run: 30 requests/minute
 - Problems: 60 requests/minute
 
 **Security Measures:**
+
 - Input validation with Zod schemas
 - Code size limits (50KB max)
 - Input size limits (1MB max)
@@ -566,6 +753,7 @@ curl -X POST http://localhost:4000/api/trace \
 - UUID-based binary IDs (prevent path traversal)
 
 **Error Response (429):**
+
 ```json
 {
   "success": false,
@@ -721,7 +909,6 @@ frontend/
 └── Dockerfile
 ```
 
-
 ## Backend API
 
 The backend provides a RESTful API for code compilation, execution, and trace generation.
@@ -746,7 +933,7 @@ NODE_ENV=development
 EXECUTOR_IMAGE=dsa-visualizer-executor:latest
 MAX_COMPILE_TIMEOUT_MS=30000
 MAX_RUN_TIMEOUT_MS=5000
-MAX_TRACE_STEPS=1000
+MAX_TRACE_STEPS=5000
 TEMP_DIR=/tmp/dsa-visualizer
 TRACE_RATE_LIMIT=10
 COMPILE_RATE_LIMIT=30
@@ -755,7 +942,9 @@ CORS_ORIGIN=*
 
 ### Running Tests
 
-Backend tests use Bun's built-in test runner:
+This project uses **Bun's built-in test runner** for all tests.
+
+#### Backend Tests
 
 ```bash
 cd backend
@@ -767,10 +956,42 @@ bun test
 bun test --coverage
 
 # Run specific test file
-bun test tests/compile.test.ts
+bun test src/services/__tests__/docker-errors.test.ts
+bun test src/middleware/__tests__/errorHandler.test.ts
 
 # Run tests in watch mode
 bun test --watch
+```
+
+#### Test Coverage
+
+Current test coverage includes:
+
+- **Docker Error Classes** (`docker-errors.test.ts`)
+  - `DockerExecutionError`
+  - `DockerTimeoutError`
+  - `DockerConnectionError`
+  - `DockerImageNotFoundError`
+  - `DockerOutputLimitError`
+  - Type guards for error identification
+
+- **Error Handler Middleware** (`errorHandler.test.ts`)
+  - `AppError` base class
+  - `ValidationError`
+  - `NotFoundError`
+  - `RateLimitError`
+  - Type guards
+
+#### Frontend Tests
+
+```bash
+cd frontend
+
+# Run tests (when configured)
+bun test
+
+# Type checking (always available)
+bun run typecheck
 ```
 
 Frontend tests (if configured):
@@ -793,7 +1014,7 @@ Both frontend and backend have TypeScript type checking:
 # Frontend type check
 cd frontend && bun run typecheck
 
-# Backend type check  
+# Backend type check
 cd backend && bun run typecheck
 
 # Or from root
@@ -806,20 +1027,23 @@ bun run --filter backend typecheck
 ### Running the Application
 
 1. **Start with Docker Compose** (Recommended):
+
    ```bash
    docker-compose up
    ```
+
    This starts all services (frontend, backend, executor).
 
 2. **Or run in development mode**:
+
    ```bash
    # Terminal 1: Start backend
    cd backend && bun run dev
-   
+
    # Terminal 2: Start frontend
    cd frontend && bun run dev
    ```
-   
+
    Note: The executor must be running via Docker for trace generation to work.
 
 ### Using the Visualizer
@@ -833,8 +1057,9 @@ bun run --filter backend typecheck
 ### Trace Visualization Controls
 
 **Timeline Navigation**:
+
 - **First**: Jump to the first step
-- **Prev**: Go to previous step  
+- **Prev**: Go to previous step
 - **Next**: Go to next step
 - **Last**: Jump to the last step
 - **Slider**: Drag to any step in the trace
@@ -842,11 +1067,13 @@ bun run --filter backend typecheck
 - **Speed**: Adjust playback speed (0.5x, 1x, 2x, 4x)
 
 **View Tabs**:
+
 - **Stack**: View call stack with local variables
 - **Heap**: View heap-allocated objects (arrays, linked lists, trees)
 - **Output**: View program stdout
 
 **Interactive Features**:
+
 - Click on pointer variables to jump to the referenced heap object
 - Click on heap objects to highlight them
 - Line highlighting in editor synchronized with current step
@@ -863,6 +1090,7 @@ bun run --filter backend typecheck
 ## Security
 
 The executor container runs with strict security settings:
+
 - No network access (`network_mode: none`)
 - Read-only filesystem with tmpfs for temporary files
 - No new privileges allowed (`no-new-privileges`)
@@ -875,6 +1103,7 @@ The executor container runs with strict security settings:
 ### Rate Limiting
 
 The backend implements rate limiting to prevent abuse:
+
 - **Trace endpoint**: 10 requests per minute (expensive GDB operation)
 - **Compile/Run endpoints**: 30 requests per minute
 - Returns `429 Too Many Requests` with `Retry-After` header when limit exceeded
@@ -882,9 +1111,10 @@ The backend implements rate limiting to prevent abuse:
 ### Input Validation
 
 All inputs are validated using Zod schemas:
+
 - Code size limit: 50KB
 - Input size limit: 1MB
-- Max trace steps: 1-5000
+- Max trace steps: 1-10000 (default: 5000)
 - Binary ID validation: UUID v4 format (prevents path traversal)
 
 ## License
@@ -896,16 +1126,19 @@ MIT
 ### Frontend Issues
 
 **Problem**: Monaco Editor not loading
+
 - Check browser console for errors
 - Verify Vite dev server is running
 - Clear browser cache and reload
 
 **Problem**: API requests failing
+
 - Ensure backend is running on port 4000
 - Check CORS configuration in backend
 - Verify network tab in browser dev tools
 
 **Problem**: Type errors in IDE
+
 - Run `bun install` in frontend directory
 - Run `bun run typecheck` to verify
 - Check that shared types are built (`cd shared && bun run build`)
@@ -913,16 +1146,19 @@ MIT
 ### Backend Issues
 
 **Problem**: Compilation failing
+
 - Check executor Docker container is running: `docker ps | grep executor`
 - Verify executor image exists: `docker images | grep dsa-visualizer-executor`
 - Check Docker daemon is running
 
 **Problem**: Trace generation failing
+
 - Verify GDB trace collector script exists in executor image
 - Check backend logs for detailed error messages
 - Ensure trace rate limit not exceeded (10 requests/minute)
 
 **Problem**: Rate limit errors
+
 - Wait for rate limit window to reset (shown in `Retry-After` header)
 - Reduce request frequency
 - Check logs for rate limit counter
@@ -930,11 +1166,13 @@ MIT
 ### Docker Issues
 
 **Problem**: Container fails to start
+
 - Check port conflicts: `lsof -i :3000,4000`
 - Verify Docker has sufficient resources (memory, CPU)
 - Check Docker logs: `docker-compose logs`
 
 **Problem**: Permission errors
+
 - Ensure Docker is running with proper permissions
 - Check file permissions in mounted volumes
 - Verify UID 1000 has access to temp directories
@@ -973,6 +1211,7 @@ curl -X POST http://localhost:4000/api/compile \
 ```
 
 The harness adds:
+
 - `#include <bits/stdc++.h>` (includes vector, string, etc.)
 - `using namespace std;`
 - Data structures (ListNode, TreeNode)
@@ -983,6 +1222,7 @@ The harness adds:
 **Fixed**: Test case inputs/outputs now have explicit text colors (`text-gray-900`, `text-red-900`, `text-green-900`).
 
 If you still see white-on-white text:
+
 1. Clear browser cache and hard reload (Ctrl+Shift+R)
 2. Check if custom CSS is interfering
 3. Verify Tailwind CSS is loaded (check Network tab in DevTools)
@@ -992,6 +1232,7 @@ If you still see white-on-white text:
 **Fixed**: Dockerfiles now work without `bun.lock` - they generate it during build.
 
 If build still fails:
+
 1. Generate lock files locally first:
    ```bash
    cd frontend && bun install
@@ -1006,22 +1247,26 @@ If build still fails:
 **Fixed**: Removed invalid `constraints` field from GraphQL query. Constraints are embedded in the `content` HTML.
 
 If you still get errors:
+
 - Check LeetCode API is accessible: `curl https://leetcode.com/graphql`
 - Verify problem slug is correct: `two-sum`, not `Two Sum`
 - Try a different problem to isolate issue
 - Check your IP isn't rate-limited by LeetCode
 
 **Problem**: Bun installation fails
+
 - Ensure Bun >= 1.0.0 is installed: `bun --version`
 - Try reinstalling: `curl -fsSL https://bun.sh/install | bash`
 - Check Node.js >= 20.0.0 is available
 
 **Problem**: Type generation fails
+
 - Ensure shared workspace is built first
 - Run `cd shared && bun run build`
 - Check for TypeScript errors: `cd shared && bun run typecheck`
 
 **Problem**: Dependencies not resolving
+
 - Clear node_modules: `rm -rf node_modules`
 - Clear Bun cache: `rm -rf ~/.bun/install/cache`
 - Reinstall: `bun install`

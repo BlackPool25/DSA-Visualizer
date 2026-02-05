@@ -300,4 +300,52 @@ inline std::vector<std::vector<int>> parseMatrix(const std::string& str) {
     return result;
 }
 
+/**
+ * @brief Parse a string representation of a tree array with nulls.
+ *
+ * Parses strings like "[1,null,2,3]" into a vector of optional<int>.
+ * This format is used by LeetCode for binary tree input.
+ *
+ * @param str String in format "[1,null,2,3]"
+ * @return Vector of optional<int> where nullopt represents null nodes
+ *
+ * Example:
+ *   Input:  "[1, null, 2, 3]"
+ *   Output: {1, nullopt, 2, 3}
+ */
+inline std::vector<std::optional<int>> parseTreeArray(const std::string& str) {
+    std::vector<std::optional<int>> result;
+
+    // Remove brackets and spaces
+    std::string cleaned;
+    for (char c : str) {
+        if (c != '[' && c != ']' && c != ' ') {
+            cleaned += c;
+        }
+    }
+
+    // Split by commas
+    std::stringstream ss(cleaned);
+    std::string item;
+
+    while (std::getline(ss, item, ',')) {
+        if (item.empty()) {
+            continue;
+        }
+        // Check for "null" (case-insensitive)
+        if (item == "null" || item == "NULL" || item == "Null") {
+            result.push_back(std::nullopt);
+        } else {
+            try {
+                result.push_back(std::stoi(item));
+            } catch (...) {
+                // Skip invalid entries
+                result.push_back(std::nullopt);
+            }
+        }
+    }
+
+    return result;
+}
+
 #endif // DESERIALIZERS_HPP

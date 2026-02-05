@@ -170,14 +170,14 @@ export async function traceCode(
 /**
  * Generate test harness for problem
  * 
- * @param code - User solution code
  * @param slug - Problem slug
+ * @param code - User solution code
  * @param testInput - Test case input
  * @returns Response from harness generation
  */
 export async function generateHarness(
-  code: string,
   slug: string,
+  code: string,
   testInput: string
 ): Promise<{ harnessedCode: string }> {
   return apiFetch<{ harnessedCode: string }>('/api/harness', {

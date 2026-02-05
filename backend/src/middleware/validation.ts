@@ -5,10 +5,10 @@
  * ensuring type safety and consistent error handling across all routes.
  */
 
-import type { Request, Response, NextFunction } from 'express';
-import { z, ZodError } from 'zod';
-import { AppError } from './errorHandler.js';
-import { logger } from '../utils/logger.js';
+import type { Request, Response, NextFunction } from "express";
+import { z, ZodError } from "zod";
+import { AppError } from "./errorHandler.js";
+import { logger } from "../utils/logger.js";
 
 /**
  * Creates a validation middleware for a Zod schema.
@@ -23,7 +23,7 @@ import { logger } from '../utils/logger.js';
  */
 export function validate<T extends z.ZodType>(
   schema: T,
-  source: 'body' | 'query' | 'params' = 'body'
+  source: "body" | "query" | "params" = "body",
 ) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
@@ -38,17 +38,17 @@ export function validate<T extends z.ZodType>(
       if (error instanceof ZodError) {
         // Format Zod errors into a readable message
         const messages = error.errors.map((err) => {
-          const path = err.path.join('.');
+          const path = err.path.join(".");
           return `${path}: ${err.message}`;
         });
 
-        logger.debug('Validation failed', {
+        logger.debug("Validation failed", {
           source,
           errors: messages,
           path: req.path,
         });
 
-        next(new AppError(`Validation failed: ${messages.join(', ')}`, 400));
+        next(new AppError(`Validation failed: ${messages.join(", ")}`, 400));
       } else {
         next(error);
       }
@@ -65,10 +65,11 @@ export const schemas = {
    * Validates C++ code submission.
    */
   compile: z.object({
-    code: z.string()
-      .min(1, 'Code cannot be empty')
-      .max(50 * 1024, 'Code exceeds maximum size of 50KB'),
-    compiler: z.enum(['g++', 'clang++']).optional().default('g++'),
+    code: z
+      .string()
+      .min(1, "Code cannot be empty")
+      .max(50 * 1024, "Code exceeds maximum size of 50KB"),
+    compiler: z.enum(["g++", "clang++"]).optional().default("g++"),
     flags: z.array(z.string()).optional(),
   }),
 
@@ -77,12 +78,12 @@ export const schemas = {
    * Validates binary execution request.
    */
   run: z.object({
-    binaryId: z.string()
-      .uuid('Invalid binary ID format'),
-    stdin: z.string()
-      .max(1024 * 1024, 'Input exceeds maximum size of 1MB')
+    binaryId: z.string().uuid("Invalid binary ID format"),
+    stdin: z
+      .string()
+      .max(1024 * 1024, "Input exceeds maximum size of 1MB")
       .optional()
-      .default(''),
+      .default(""),
   }),
 
   /**
@@ -90,19 +91,22 @@ export const schemas = {
    * Validates trace generation request.
    */
   trace: z.object({
-    code: z.string()
-      .min(1, 'Code cannot be empty')
-      .max(50 * 1024, 'Code exceeds maximum size of 50KB'),
-    stdin: z.string()
-      .max(1024 * 1024, 'Input exceeds maximum size of 1MB')
+    code: z
+      .string()
+      .min(1, "Code cannot be empty")
+      .max(50 * 1024, "Code exceeds maximum size of 50KB"),
+    stdin: z
+      .string()
+      .max(1024 * 1024, "Input exceeds maximum size of 1MB")
       .optional()
-      .default(''),
-    maxSteps: z.number()
-      .int('maxSteps must be an integer')
-      .min(1, 'maxSteps must be at least 1')
-      .max(5000, 'maxSteps cannot exceed 5000')
+      .default(""),
+    maxSteps: z
+      .number()
+      .int("maxSteps must be an integer")
+      .min(1, "maxSteps must be at least 1")
+      .max(10000, "maxSteps cannot exceed 10000")
       .optional()
-      .default(1000),
+      .default(5000),
   }),
 } as const;
 

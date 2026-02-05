@@ -2,112 +2,177 @@
  * VariableDisplay Component
  * 
  * Renders variable values in the trace visualization.
- * Handles different value types: primitives, pointers, and containers.
- * Uses visual styling similar to Python Tutor.
+ * Handles different value types from GDB trace:
+ * - primitive: numbers, strings, booleans, chars
+ * - pointer: memory addresses with references
+ * - stl_container: vectors, maps, sets, etc.
+ * - struct/heap_object: custom structs with fields
+ * - array: C-style arrays
+ * - enum: enumeration values
+ * - unknown/error: fallback display
  */
 
-import type { Value, PrimitiveValue, PointerValue, ContainerValue } from '../../types/index.js'
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** Props for VariableDisplay component */
 interface VariableDisplayProps {
     /** Variable name */
     name: string
-    /** Variable value (discriminated union) */
-    value: Value
+    /** Variable value (from GDB trace) */
+    value: any
     /** Optional callback when pointer is clicked */
     onPointerClick?: (ref: string) => void
 }
 
 /**
- * Display a primitive value (number, string, boolean)
+ * Get display color based on value type
  */
-function PrimitiveDisplay({ value }: { value: PrimitiveValue }) {
-    // Format based on type
-    const displayValue = typeof value.value === 'string'
-        ? `"${value.value}"`
-        : String(value.value)
+function getTypeColor(value: any): string {
+    if (!value || typeof value !== 'object') return 'text-gray-600'
 
-    // Color based on type
-    const typeColor = typeof value.value === 'number'
-        ? 'text-blue-600'
-        : typeof value.value === 'string'
-            ? 'text-green-600'
-            : 'text-purple-600'
-
-    return (
-        <span className={`font-mono ${typeColor}`}>
-            {displayValue}
-        </span>
-    )
+    const kind = value.kind
+    switch (kind) {
+        case 'primitive':
+            if (typeof value.value === 'number') return 'text-blue-600'
+            if (typeof value.value === 'string') return 'text-green-600'
+            if (typeof value.value === 'boolean') return 'text-purple-600'
+            return 'text-gray-600'
+        case 'pointer':
+            return value.ref ? 'text-orange-600' : 'text-gray-500'
+        case 'stl_container':
+            return 'text-indigo-600'
+        case 'struct':
+        case 'heap_object':
+            return 'text-teal-600'
+        case 'array':
+            return 'text-cyan-600'
+        case 'enum':
+            return 'text-pink-600'
+        case 'error':
+            return 'text-red-500'
+        default:
+            return 'text-gray-600'
+    }
 }
 
 /**
- * Display a pointer/reference value with arrow indicator
+ * Format a value for display
  */
-function PointerDisplay({
-    value,
-    onPointerClick
-}: {
-    value: PointerValue
-    onPointerClick?: (ref: string) => void
-}) {
-    // Null pointer
-    if (value.ref === null) {
-        return (
-            <span className="font-mono text-gray-500 italic">
-                nullptr
-            </span>
-        )
+function formatValue(value: any): string {
+    if (value === null || value === undefined) {
+        return 'null'
     }
 
-    return (
-        <button
-            onClick={() => onPointerClick?.(value.ref!)}
-            className="inline-flex items-center gap-1 font-mono text-orange-600 hover:text-orange-800 cursor-pointer"
-            title={`Points to object ${value.ref}`}
-        >
-            <span className="text-xs">→</span>
-            <span className="underline">{value.ref}</span>
-        </button>
-    )
-}
+    if (typeof value !== 'object') {
+        return String(value)
+    }
 
-/**
- * Display a container reference (array, vector, etc.)
- */
-function ContainerDisplay({
-    value,
-    onPointerClick
-}: {
-    value: ContainerValue
-    onPointerClick?: (ref: string) => void
-}) {
-    return (
-        <button
-            onClick={() => onPointerClick?.(value.ref)}
-            className="inline-flex items-center gap-1 font-mono text-indigo-600 hover:text-indigo-800 cursor-pointer"
-            title={`Container object ${value.ref}`}
-        >
-            <span className="text-xs bg-indigo-100 px-1 rounded">{value.type}</span>
-            <span className="text-xs">→</span>
-            <span className="underline">{value.ref}</span>
-        </button>
-    )
+    const kind = value.kind
+
+    switch (kind) {
+        case 'primitive': {
+            const val = value.value
+            if (typeof val === 'string') return `"${val}"`
+            if (typeof val === 'boolean') return val ? 'true' : 'false'
+            if (val === null || val === undefined) return 'null'
+            return String(val)
+        }
+
+        case 'pointer': {
+            if (value.is_null || value.ref === null) return 'nullptr'
+            if (value.is_cycle) return `→ ${value.ref} (cycle)`
+            return `→ ${value.ref}`
+        }
+
+        case 'stl_container': {
+            const containerType = value.container_type || 'container'
+            const size = value.size ?? value.elements?.length ?? '?'
+
+            // For vector, show elements preview
+            if (containerType === 'vector' && value.elements) {
+                const preview = value.elements
+                    .slice(0, 5)
+                    .map((el: any) => formatValue(el))
+                    .join(', ')
+                const suffix = value.elements.length > 5 ? ', ...' : ''
+                return `[${preview}${suffix}]`
+            }
+
+            // For map/set, show size
+            if (containerType === 'map' || containerType === 'unordered_map') {
+                return `{${size} entries}`
+            }
+
+            return `${containerType}<${size}>`
+        }
+
+        case 'struct':
+        case 'heap_object': {
+            const typeName = value.type?.split('<')[0] || 'struct'
+            const fields = value.fields
+            if (fields && typeof fields === 'object') {
+                const fieldCount = Object.keys(fields).length
+                // Show condensed field preview
+                const preview = Object.entries(fields)
+                    .slice(0, 3)
+                    .map(([k, v]) => `${k}: ${formatValue(v)}`)
+                    .join(', ')
+                if (fieldCount <= 3) return `{${preview}}`
+                return `{${preview}, ...}`
+            }
+            return `${typeName}{...}`
+        }
+
+        case 'array': {
+            if (value.elements) {
+                const preview = value.elements
+                    .slice(0, 5)
+                    .map((el: any) => formatValue(el))
+                    .join(', ')
+                const suffix = value.elements.length > 5 ? ', ...' : ''
+                return `[${preview}${suffix}]`
+            }
+            return `array[${value.length ?? '?'}]`
+        }
+
+        case 'enum': {
+            return `${value.name} (${value.value})`
+        }
+
+        case 'error': {
+            return `<error: ${value.error || 'unknown'}>`
+        }
+
+        case 'unknown':
+        default: {
+            // Try to extract value from the object
+            if ('value' in value) return String(value.value)
+            return JSON.stringify(value).slice(0, 50)
+        }
+    }
 }
 
 /**
  * VariableDisplay - Renders a named variable with its value
  * 
- * Supports three value types:
- * - Primitive: Numbers, strings, booleans shown inline
- * - Pointer: Shows arrow and reference ID, clickable
- * - Container: Shows type badge and reference, clickable
+ * Supports all value kinds from GDB tracer:
+ * - primitive, pointer, stl_container, struct, array, enum, error, unknown
  * 
  * @example
  * <VariableDisplay name="x" value={{ kind: 'primitive', value: 42, type: 'int' }} />
- * <VariableDisplay name="ptr" value={{ kind: 'pointer', ref: 'obj_1', type: 'int*' }} />
  */
 export function VariableDisplay({ name, value, onPointerClick }: VariableDisplayProps) {
+    const colorClass = getTypeColor(value)
+    const formattedValue = formatValue(value)
+    const isClickable = value?.kind === 'pointer' && value.ref && !value.is_null
+    const typeName = value?.type || ''
+
+    const handleClick = () => {
+        if (isClickable && onPointerClick) {
+            onPointerClick(value.ref)
+        }
+    }
+
     return (
         <div className="flex items-center gap-2 py-1 px-2 hover:bg-gray-50 rounded">
             {/* Variable name */}
@@ -118,24 +183,26 @@ export function VariableDisplay({ name, value, onPointerClick }: VariableDisplay
             {/* Separator */}
             <span className="text-gray-400">=</span>
 
-            {/* Value display based on kind */}
+            {/* Value display */}
             <div className="flex-1">
-                {value.kind === 'primitive' && (
-                    <PrimitiveDisplay value={value} />
-                )}
-
-                {value.kind === 'pointer' && (
-                    <PointerDisplay value={value} onPointerClick={onPointerClick} />
-                )}
-
-                {value.kind === 'container' && (
-                    <ContainerDisplay value={value} onPointerClick={onPointerClick} />
+                {isClickable ? (
+                    <button
+                        onClick={handleClick}
+                        className={`font-mono text-sm ${colorClass} hover:underline cursor-pointer`}
+                        title={`Points to object ${value.ref}`}
+                    >
+                        {formattedValue}
+                    </button>
+                ) : (
+                    <span className={`font-mono text-sm ${colorClass}`}>
+                        {formattedValue}
+                    </span>
                 )}
             </div>
 
             {/* Type annotation */}
-            <span className="text-xs text-gray-400 font-mono">
-                {value.type}
+            <span className="text-xs text-gray-400 font-mono truncate max-w-[150px]" title={typeName}>
+                {typeName.length > 20 ? typeName.split('<')[0] + '<...>' : typeName}
             </span>
         </div>
     )

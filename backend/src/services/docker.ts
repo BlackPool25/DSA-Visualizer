@@ -13,21 +13,32 @@
  * - Process limit: 50 PIDs
  * - Non-root user execution (UID 1000)
  * - Automatic container removal after execution
+ * - Output size limits to prevent memory exhaustion
  */
 
-import Docker from 'dockerode';
-import { config } from '../config.js';
-import { logger } from '../utils/logger.js';
+import Docker from "dockerode";
+import { config } from "../config.js";
+import { logger } from "../utils/logger.js";
+import {
+  DockerExecutionError,
+  DockerTimeoutError,
+  DockerConnectionError,
+  DockerImageNotFoundError,
+  DockerOutputLimitError,
+} from "./docker-errors.js";
 
 /** Docker client instance - initialized once and reused */
 let dockerClient: Docker | null = null;
+
+/** Default output size limit (10MB) */
+const OUTPUT_SIZE_LIMIT = 10 * 1024 * 1024;
 
 /** Default container security settings */
 const SECURITY_SETTINGS = {
   /** Disable all network access */
   NetworkDisabled: true,
 
-  /** 
+  /**
    * ReadonlyRootfs is disabled because:
    * 1. Compilation needs to write temporary files
    * 2. GDB tracing needs to write trace.json
@@ -45,7 +56,7 @@ const SECURITY_SETTINGS = {
   PidsLimit: 50,
 
   /** Security options to prevent privilege escalation */
-  SecurityOpt: ['no-new-privileges'],
+  SecurityOpt: ["no-new-privileges"],
 
   /** Auto-remove container after execution */
   AutoRemove: true,
@@ -57,11 +68,11 @@ const SECURITY_SETTINGS = {
    * - Resource limits (memory, CPU, PIDs)
    * - Automatic container removal
    * - No privilege escalation
-   * 
+   *
    * Note: The executor Dockerfile sets USER sandbox, but we override to root
    * for compilation and GDB access. This is safe because of network isolation.
    */
-  User: 'root',
+  User: "root",
 } as const;
 
 /**
@@ -96,13 +107,16 @@ export interface ContainerRunOptions {
 
   /** Timeout in milliseconds */
   timeoutMs?: number;
+
+  /** Maximum output size in bytes (default: 10MB) */
+  maxOutputSize?: number;
 }
 
 /**
  * Initialize the Docker client and verify connection.
  *
  * @returns Initialized Docker client
- * @throws Error if Docker is not accessible
+ * @throws DockerConnectionError if Docker is not accessible
  */
 export async function initDockerClient(): Promise<Docker> {
   if (dockerClient) {
@@ -111,7 +125,7 @@ export async function initDockerClient(): Promise<Docker> {
 
   try {
     // Connect to local Docker socket
-    dockerClient = new Docker({ socketPath: '/var/run/docker.sock' });
+    dockerClient = new Docker({ socketPath: "/var/run/docker.sock" });
 
     // Verify connection by checking Docker version
     const version = await dockerClient.version();
@@ -120,19 +134,25 @@ export async function initDockerClient(): Promise<Docker> {
     // Verify executor image exists
     const images = await dockerClient.listImages();
     const executorImage = images.find((img) =>
-      img.RepoTags?.includes(config.EXECUTOR_IMAGE)
+      img.RepoTags?.includes(config.EXECUTOR_IMAGE),
     );
 
     if (!executorImage) {
-      logger.warn(`Executor image '${config.EXECUTOR_IMAGE}' not found locally. Will attempt to pull on first use.`);
+      logger.warn(
+        `Executor image '${config.EXECUTOR_IMAGE}' not found locally. Will attempt to pull on first use.`,
+      );
     } else {
       logger.info(`Executor image '${config.EXECUTOR_IMAGE}' found`);
     }
 
     return dockerClient;
   } catch (error) {
-    logger.error('Failed to initialize Docker client', { error });
-    throw new Error(`Docker connection failed: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error("Failed to initialize Docker client", { error: errorMessage });
+    throw new DockerConnectionError(
+      `Docker connection failed: ${errorMessage}`,
+      error instanceof Error ? error : undefined,
+    );
   }
 }
 
@@ -151,71 +171,145 @@ export async function getDockerClient(): Promise<Docker> {
 /**
  * Runs a command in a new Docker container with security restrictions.
  *
+ * Features:
+ * - Automatic timeout handling with AbortController
+ * - Output size limits to prevent memory exhaustion
+ * - Proper stream cleanup to avoid resource leaks
+ * - Detailed error context for debugging
+ *
  * @param command - Array of command arguments to execute
  * @param options - Optional configuration for the container run
  * @returns Execution result with exit code, output, and duration
- * @throws Error if container execution fails
+ * @throws DockerTimeoutError if execution times out
+ * @throws DockerExecutionError if command fails
+ * @throws DockerConnectionError if Docker is not accessible
  */
 export async function runInContainer(
   command: string[],
-  options: ContainerRunOptions = {}
+  options: ContainerRunOptions = {},
 ): Promise<ContainerExecutionResult> {
   const docker = await getDockerClient();
   const startTime = Date.now();
-  const timeoutMs = options.timeoutMs || 30000; // Default 30 second timeout
+  const timeoutMs = options.timeoutMs || 30000;
+  const maxOutputSize = options.maxOutputSize || OUTPUT_SIZE_LIMIT;
 
-  // Collect stdout and stderr
-  let stdout = '';
-  let stderr = '';
+  // Collect stdout and stderr using streams with proper cleanup
+  let stdout = "";
+  let stderr = "";
+  let outputPaused = false;
 
-  // Create pass-through streams to capture output
-  const { PassThrough } = await import('stream');
+  const { PassThrough } = await import("stream");
   const stdoutStream = new PassThrough();
   const stderrStream = new PassThrough();
 
-  stdoutStream.on('data', (data) => {
+  // Handle data with backpressure protection and size limits
+  stdoutStream.on("data", (data: Buffer) => {
+    if (outputPaused) return;
+
     stdout += data.toString();
+
+    // Prevent memory exhaustion from excessive output
+    if (stdout.length + stderr.length > maxOutputSize) {
+      outputPaused = true;
+      stdoutStream.pause();
+      stderrStream.pause();
+      logger.warn("Output size limit reached, pausing stream", {
+        maxSize: maxOutputSize,
+        currentSize: stdout.length + stderr.length,
+      });
+    }
   });
 
-  stderrStream.on('data', (data) => {
+  stderrStream.on("data", (data: Buffer) => {
+    if (outputPaused) return;
+
     stderr += data.toString();
+
+    if (stdout.length + stderr.length > maxOutputSize) {
+      outputPaused = true;
+      stdoutStream.pause();
+      stderrStream.pause();
+    }
   });
 
-  // Create timeout promise
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(`Container execution timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
+  // Create abort controller for timeout and cancellation
+  const abortController = new AbortController();
+  let timeoutId: NodeJS.Timeout | null = null;
 
   try {
-    logger.debug(`Running command in container: ${command.join(' ')}`, { timeoutMs });
+    logger.debug(`Running command in container: ${command.join(" ")}`, {
+      timeoutMs,
+      maxOutputSize,
+    });
 
-    // Run the container with security settings
-    // User must be at the container config level, not in HostConfig
+    // Build container configuration
     const { User, ...hostConfigSettings } = SECURITY_SETTINGS;
-    
+
+    const containerConfig = {
+      Image: config.EXECUTOR_IMAGE,
+      Cmd: command,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+      User: User || "root",
+      WorkingDir: options.workingDir || "/workspace",
+      Env: options.env || [],
+      HostConfig: {
+        ...hostConfigSettings,
+        Binds: options.binds || [],
+      },
+    };
+
+    // Create a promise for the Docker run operation
     const runPromise = docker.run(
       config.EXECUTOR_IMAGE,
       command,
       [stdoutStream, stderrStream],
-      {
-        Tty: false,
-        User: User || 'root', // Override Dockerfile's USER sandbox
-        WorkingDir: options.workingDir || '/workspace',
-        Env: options.env || [],
-        HostConfig: {
-          ...hostConfigSettings,
-          Binds: options.binds || [],
-        },
-      }
+      containerConfig,
     );
+
+    // Create timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        abortController.abort();
+        reject(
+          new DockerTimeoutError(
+            stdout,
+            stderr,
+            Date.now() - startTime,
+            timeoutMs,
+          ),
+        );
+      }, timeoutMs);
+    });
 
     // Race between execution and timeout
     const [result] = await Promise.race([runPromise, timeoutPromise]);
 
+    // Clear timeout if execution completed first
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+
     const duration = Date.now() - startTime;
     const exitCode = result.StatusCode || 0;
+
+    // Check if output limit was exceeded
+    if (outputPaused) {
+      throw new DockerOutputLimitError(stdout, stderr, duration, maxOutputSize);
+    }
+
+    // Handle non-zero exit codes as errors
+    if (exitCode !== 0) {
+      throw new DockerExecutionError(
+        `Command failed with exit code ${exitCode}`,
+        exitCode,
+        stdout,
+        stderr,
+        duration,
+      );
+    }
 
     logger.debug(`Container execution completed`, {
       exitCode,
@@ -231,26 +325,106 @@ export async function runInContainer(
       duration,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const duration = Date.now() - startTime;
 
-    // Check if this was a timeout
-    if (errorMessage.includes('timed out')) {
-      logger.warn('Container execution timed out', { command: command.join(' '), timeoutMs });
-
-      return {
-        exitCode: 124, // Standard timeout exit code
-        stdout,
-        stderr: `Execution timed out after ${timeoutMs}ms`,
-        duration: Date.now() - startTime,
-      };
+    // Clear timeout if it exists
+    if (timeoutId) {
+      clearTimeout(timeoutId);
     }
 
-    logger.error('Container execution failed', { error, command: command.join(' ') });
-    throw new Error(`Container execution failed: ${error}`);
+    // Re-throw known Docker errors
+    if (
+      error instanceof DockerExecutionError ||
+      error instanceof DockerTimeoutError ||
+      error instanceof DockerOutputLimitError ||
+      error instanceof DockerConnectionError
+    ) {
+      throw error;
+    }
+
+    // Handle abort errors (timeout)
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new DockerTimeoutError(stdout, stderr, duration, timeoutMs);
+    }
+
+    // Handle Docker image not found
+    if (error instanceof Error && error.message?.includes("No such image")) {
+      throw new DockerImageNotFoundError(config.EXECUTOR_IMAGE);
+    }
+
+    // Wrap unknown errors
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error("Container execution failed", {
+      error: errorMessage,
+      command: command.join(" "),
+    });
+
+    throw new DockerExecutionError(
+      `Container execution failed: ${errorMessage}`,
+      -1,
+      stdout,
+      stderr,
+      duration,
+    );
   } finally {
-    // Clean up streams
+    // Ensure streams are properly closed
     stdoutStream.end();
     stderrStream.end();
+
+    // Abort any pending operations
+    if (!abortController.signal.aborted) {
+      abortController.abort();
+    }
   }
 }
 
+/**
+ * Validates that the executor image exists locally.
+ *
+ * @returns True if image exists, false otherwise
+ */
+export async function validateExecutorImage(): Promise<boolean> {
+  try {
+    const docker = await getDockerClient();
+    const images = await docker.listImages();
+    return images.some((img) => img.RepoTags?.includes(config.EXECUTOR_IMAGE));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pulls the executor image if it doesn't exist locally.
+ *
+ * @throws DockerConnectionError if Docker is not accessible
+ */
+export async function pullExecutorImage(): Promise<void> {
+  const docker = await getDockerClient();
+
+  logger.info(`Pulling executor image: ${config.EXECUTOR_IMAGE}`);
+
+  try {
+    const stream = await docker.pull(config.EXECUTOR_IMAGE);
+
+    return new Promise((resolve, reject) => {
+      docker.modem.followProgress(stream, (err: Error | null) => {
+        if (err) {
+          reject(
+            new DockerConnectionError(
+              `Failed to pull image: ${err.message}`,
+              err,
+            ),
+          );
+        } else {
+          logger.info("Executor image pulled successfully");
+          resolve();
+        }
+      });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new DockerConnectionError(
+      `Failed to pull executor image: ${message}`,
+    );
+  }
+}

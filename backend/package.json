@@ -4,10 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npx tsx --watch src/index.ts",
-    "dev:bun": "bun --watch src/index.ts",
-    "start": "node --import tsx src/index.ts",
-    "start:bun": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
@@ -31,7 +29,6 @@
     "@types/node": "^20.10.0",
     "@types/uuid": "^9.0.7",
     "bun-types": "latest",
-    "tsx": "^4.7.0",
     "typescript": "^5.9.2"
   }
 }

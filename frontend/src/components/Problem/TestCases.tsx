@@ -8,7 +8,7 @@
 
 import { useState } from 'react'
 import { Play, Plus, CheckCircle, XCircle, Trash2 } from 'lucide-react'
-import { useEditorStore } from '../../stores/editorStore.js'
+import { useEditorStore, extractParameterNames } from '../../stores/editorStore.js'
 import type { TestCase } from '../../types/index.js'
 
 /**
@@ -26,7 +26,7 @@ export function TestCases() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [newInput, setNewInput] = useState('')
   const [newExpected, setNewExpected] = useState('')
-  
+
   const {
     testCases,
     addTestCase,
@@ -35,25 +35,31 @@ export function TestCases() {
     runResults,
     isLoading,
     setTestCases,
+    problem,
   } = useEditorStore()
-  
+
+  // Extract parameter names from the code snippet
+  const parameterNames = problem?.codeSnippets?.['cpp']
+    ? extractParameterNames(problem.codeSnippets['cpp'])
+    : []
+
   // Add a new custom test case
   const handleAddTestCase = () => {
     if (!newInput.trim()) return
-    
+
     const newCase: TestCase = {
       input: newInput.trim(),
       expectedOutput: newExpected.trim(),
       isCustom: true,
     }
-    
+
     addTestCase(newCase)
     setNewInput('')
     setNewExpected('')
     setShowAddForm(false)
     setActiveTab(testCases.length)
   }
-  
+
   // Remove a test case
   const handleRemoveTestCase = (index: number) => {
     const newCases = testCases.filter((_, i) => i !== index)
@@ -62,23 +68,23 @@ export function TestCases() {
       setActiveTab(Math.max(0, newCases.length - 1))
     }
   }
-  
+
   // Get test result for a specific test case
   const getTestResult = (index: number) => {
     return runResults.get(index)
   }
-  
+
   // Check if test passed (output matches expected)
   const isTestPassed = (index: number): boolean | null => {
     const result = getTestResult(index)
     if (!result) return null
-    
+
     const testCase = testCases[index]
     if (!testCase.expectedOutput) return null
-    
+
     return result.stdout.trim() === testCase.expectedOutput.trim() && result.exitCode === 0
   }
-  
+
   return (
     <div className="flex flex-col h-full bg-white border border-gray-200 rounded-lg overflow-hidden">
       {/* Header */}
@@ -102,7 +108,7 @@ export function TestCases() {
           </button>
         </div>
       </div>
-      
+
       {/* Add test case form */}
       {showAddForm && (
         <div className="p-4 border-b border-gray-200 bg-blue-50">
@@ -145,7 +151,7 @@ export function TestCases() {
           </div>
         </div>
       )}
-      
+
       {/* Test case tabs */}
       {testCases.length > 0 && (
         <div className="flex border-b border-gray-200 overflow-x-auto">
@@ -155,11 +161,10 @@ export function TestCases() {
               <button
                 key={index}
                 onClick={() => setActiveTab(index)}
-                className={`flex items-center gap-1.5 px-4 py-2 text-sm border-r border-gray-200 whitespace-nowrap transition-colors ${
-                  activeTab === index
-                    ? 'bg-white text-blue-600 border-b-2 border-b-blue-600'
-                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                }`}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm border-r border-gray-200 whitespace-nowrap transition-colors ${activeTab === index
+                  ? 'bg-white text-blue-600 border-b-2 border-b-blue-600'
+                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  }`}
               >
                 <span>Case {index + 1}</span>
                 {result === true && <CheckCircle className="w-4 h-4 text-green-500" />}
@@ -180,7 +185,7 @@ export function TestCases() {
           })}
         </div>
       )}
-      
+
       {/* Test case content */}
       <div className="flex-1 overflow-auto p-4">
         {testCases.length === 0 ? (
@@ -208,11 +213,34 @@ export function TestCases() {
                       Run
                     </button>
                   </div>
-                  <pre className="p-3 bg-gray-50 border border-gray-200 rounded-md text-sm font-mono text-gray-900 overflow-auto">
-                    {testCase.input}
-                  </pre>
+                  {/* Display inputs with parameter labels if multi-line */}
+                  {testCase.input.includes('\n') ? (
+                    <div className="space-y-2">
+                      {testCase.input.split('\n').map((param, paramIdx) => (
+                        <div key={paramIdx}>
+                          <div className="text-xs text-gray-500 mb-0.5">
+                            {parameterNames[paramIdx] || `param${paramIdx + 1}`}:
+                          </div>
+                          <pre className="p-2 bg-gray-50 border border-gray-200 rounded text-sm font-mono text-gray-900 overflow-auto">
+                            {param}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>
+                      {parameterNames.length > 0 && (
+                        <div className="text-xs text-gray-500 mb-0.5">
+                          {parameterNames[0]}:
+                        </div>
+                      )}
+                      <pre className="p-3 bg-gray-50 border border-gray-200 rounded-md text-sm font-mono text-gray-900 overflow-auto">
+                        {testCase.input}
+                      </pre>
+                    </div>
+                  )}
                 </div>
-                
+
                 {/* Expected output */}
                 {testCase.expectedOutput && (
                   <div>
@@ -224,7 +252,7 @@ export function TestCases() {
                     </pre>
                   </div>
                 )}
-                
+
                 {/* Actual output */}
                 {getTestResult(index) && (
                   <div>
@@ -243,12 +271,11 @@ export function TestCases() {
                         </span>
                       )}
                     </div>
-                    <pre className={`p-3 border rounded-md text-sm font-mono overflow-auto ${
-                      isTestPassed(index) === false ? 'bg-red-50 border-red-200 text-red-900' : 'bg-green-50 border-green-200 text-green-900'
-                    }`}>
+                    <pre className={`p-3 border rounded-md text-sm font-mono overflow-auto ${isTestPassed(index) === false ? 'bg-red-50 border-red-200 text-red-900' : 'bg-green-50 border-green-200 text-green-900'
+                      }`}>
                       {getTestResult(index)?.stdout || '(no output)'}
                     </pre>
-                    
+
                     {/* Error output */}
                     {getTestResult(index)?.stderr && (
                       <div className="mt-2">

@@ -1,23 +1,23 @@
 /**
  * MainLayout Component
- * 
+ *
  * Split-pane layout for the DSA Visualizer:
  * - Left panel: Problem picker, description, test cases
  * - Right panel: Monaco code editor with line highlighting
  * - Bottom: Trace visualization with Python Tutor-style display
  */
 
-import { useState, useCallback } from 'react'
-import { Play, Activity, RotateCcw } from 'lucide-react'
-import { CodeEditor } from '../Editor/CodeEditor.js'
-import { ProblemPicker } from '../Problem/ProblemPicker.js'
-import { TestCases } from '../Problem/TestCases.js'
-import { TracePlayback } from '../Visualizer/TracePlayback.js'
-import { useEditorStore } from '../../stores/editorStore.js'
+import { useState, useCallback } from "react";
+import { Play, Activity, RotateCcw } from "lucide-react";
+import { CodeEditor } from "../Editor/CodeEditor.js";
+import { ProblemPicker } from "../Problem/ProblemPicker.js";
+import { TestCases } from "../Problem/TestCases.js";
+import { TracePlayback } from "../Visualizer/TracePlayback.js";
+import { useEditorStore } from "../../stores/editorStore.js";
 
 /**
  * MainLayout component with split-pane design
- * 
+ *
  * Layout structure:
  * - Top bar with problem picker and action buttons
  * - Left column: Problem description and test cases
@@ -26,7 +26,9 @@ import { useEditorStore } from '../../stores/editorStore.js'
  */
 export function MainLayout() {
   // Track the current line for editor highlighting during trace playback
-  const [highlightLine, setHighlightLine] = useState<number | undefined>(undefined)
+  const [highlightLine, setHighlightLine] = useState<number | undefined>(
+    undefined,
+  );
 
   const {
     code,
@@ -38,23 +40,24 @@ export function MainLayout() {
     runAllTestCases,
     traceExecution,
     reset,
-  } = useEditorStore()
+  } = useEditorStore();
 
   // Handle line changes from trace playback
   const handleLineChange = useCallback((line: number) => {
-    setHighlightLine(line)
-  }, [])
+    setHighlightLine(line);
+  }, []);
 
   // Clear highlight when not tracing
   const handleReset = useCallback(() => {
-    setHighlightLine(undefined)
-    reset()
-  }, [reset])
+    setHighlightLine(undefined);
+    reset();
+  }, [reset]);
 
   // Check if we have a valid trace to display
-  const hasValidTrace = traceResult &&
-    !('error' in traceResult) &&
-    traceResult.trace?.steps?.length > 0
+  const hasValidTrace =
+    traceResult &&
+    !("error" in traceResult) &&
+    traceResult.trace?.steps?.length > 0;
 
   return (
     <div className="h-screen flex flex-col bg-gray-100">
@@ -80,8 +83,8 @@ export function MainLayout() {
 
             <button
               onClick={() => {
-                setHighlightLine(undefined)
-                traceExecution(100)
+                setHighlightLine(undefined);
+                traceExecution(100);
               }}
               disabled={isLoading}
               className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -115,19 +118,26 @@ export function MainLayout() {
                   <h2 className="text-2xl font-bold text-gray-900">
                     {problem.id}. {problem.title}
                   </h2>
-                  <span className={`px-3 py-1 text-sm font-medium rounded-full ${
-                    problem.difficulty === 'Easy' ? 'bg-green-100 text-green-800' :
-                    problem.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
+                  <span
+                    className={`px-3 py-1 text-sm font-medium rounded-full ${
+                      problem.difficulty === "Easy"
+                        ? "bg-green-100 text-green-800"
+                        : problem.difficulty === "Medium"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-red-100 text-red-800"
+                    }`}
+                  >
                     {problem.difficulty}
                   </span>
                 </div>
 
                 {/* Topic tags */}
                 <div className="flex flex-wrap gap-2">
-                  {problem.topicTags.map(tag => (
-                    <span key={tag} className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-md">
+                  {problem.topicTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-md"
+                    >
                       {tag}
                     </span>
                   ))}
@@ -143,8 +153,12 @@ export function MainLayout() {
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">
                 <div className="text-center">
-                  <p className="text-lg font-medium mb-2">Select a problem to get started</p>
-                  <p className="text-sm">Use the problem picker above to choose a coding challenge</p>
+                  <p className="text-lg font-medium mb-2">
+                    Select a problem to get started
+                  </p>
+                  <p className="text-sm">
+                    Use the problem picker above to choose a coding challenge
+                  </p>
                 </div>
               </div>
             )}
@@ -159,7 +173,9 @@ export function MainLayout() {
         {/* Right panel - Editor + Visualization */}
         <div className="flex-1 flex flex-col bg-gray-900">
           {/* Code editor with line highlighting */}
-          <div className={`${hasValidTrace ? 'h-[50%]' : 'flex-1'} p-4 transition-all duration-300`}>
+          <div
+            className={`${hasValidTrace ? "h-[50%]" : "flex-1"} p-4 transition-all duration-300`}
+          >
             <CodeEditor
               value={code}
               onChange={setCode}
@@ -171,11 +187,15 @@ export function MainLayout() {
           {/* Trace visualization panel */}
           {traceResult && (
             <div className="flex-1 min-h-[300px] border-t border-gray-700">
-              {'error' in traceResult ? (
+              {"error" in traceResult ? (
                 <div className="h-full flex items-center justify-center bg-gray-800">
                   <div className="text-center p-6">
-                    <div className="text-red-400 text-lg font-medium mb-2">Trace Error</div>
-                    <div className="text-red-300 text-sm max-w-md">{traceResult.error}</div>
+                    <div className="text-red-400 text-lg font-medium mb-2">
+                      Trace Error
+                    </div>
+                    <div className="text-red-300 text-sm max-w-md">
+                      {traceResult.error}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -200,11 +220,7 @@ export function MainLayout() {
               </span>
             )}
 
-            {error && (
-              <span className="text-red-600">
-                Error: {error}
-              </span>
-            )}
+            {error && <span className="text-red-600">Error: {error}</span>}
 
             {!isLoading && !error && problem && (
               <span>
@@ -213,17 +229,13 @@ export function MainLayout() {
             )}
 
             {highlightLine && (
-              <span className="text-blue-600">
-                • Line {highlightLine}
-              </span>
+              <span className="text-blue-600">• Line {highlightLine}</span>
             )}
           </div>
 
-          <div className="text-sm text-gray-500">
-            DSA Visualizer v1.0
-          </div>
+          <div className="text-sm text-gray-500">DSA Visualizer v1.0</div>
         </div>
       </footer>
     </div>
-  )
+  );
 }
