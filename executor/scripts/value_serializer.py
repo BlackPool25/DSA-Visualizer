@@ -82,6 +82,17 @@ def serialize_value(
         return serialize_primitive(val, "char")
     elif type_code == gdb.TYPE_CODE_PTR:
         return serialize_pointer(val, heap, visited)
+    elif type_code == gdb.TYPE_CODE_REF:
+        # C++ reference (e.g., vector<int>&) - serialize the referenced value.
+        try:
+            return serialize_value(val.referenced_value(), heap, visited)
+        except gdb.error as e:
+            return {
+                "kind": "unknown",
+                "type": type_name,
+                "value": str(val),
+                "error": f"Could not dereference reference: {str(e)}",
+            }
     elif type_code == gdb.TYPE_CODE_ARRAY:
         return serialize_array(val, heap, visited)
     elif type_code == gdb.TYPE_CODE_STRUCT:

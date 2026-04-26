@@ -6,8 +6,8 @@
  * and playback speed control for the Python Tutor-style visualization.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import type { TraceStep, FullTrace } from '../types/index.js'
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { TraceStep, FullTrace } from "../types/index.js";
 
 /** Supported playback speed multipliers */
 export type PlaybackSpeed = 0.5 | 1 | 2 | 4
@@ -77,125 +77,103 @@ const BASE_INTERVAL_MS = 1000
  * controls.play()
  * controls.setSpeed(2)
  */
-export function useTracePlayback(trace: FullTrace | null): TracePlaybackState {
-    const [currentStep, setCurrentStep] = useState(0)
-    const [isPlaying, setIsPlaying] = useState(false)
-    const [speed, setSpeed] = useState<PlaybackSpeed>(1)
+interface UseTracePlaybackOptions {
+  currentStep: number;
+  isPlaying: boolean;
+  speed: PlaybackSpeed;
+  setStep: (n: number) => void;
+  setPlaying: (b: boolean) => void;
+  setSpeed: (speed: PlaybackSpeed) => void;
+}
 
-    // Extract steps array, handling null trace
-    const steps = trace?.steps ?? []
-    const totalSteps = steps.length
+export function useTracePlayback(
+  trace: FullTrace | null,
+  options: UseTracePlaybackOptions,
+): TracePlaybackState {
+  const intervalRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const lastTsRef = useRef<number>(0);
 
-    // Reset to beginning when trace changes
-    useEffect(() => {
-        setCurrentStep(0)
-        setIsPlaying(false)
-    }, [trace])
+  const steps = trace?.steps ?? [];
+  const totalSteps = steps.length;
+  const { currentStep, isPlaying, speed } = options;
+  const isAtStart = currentStep === 0;
+  const isAtEnd = totalSteps === 0 || currentStep >= totalSteps - 1;
 
-    // Derived state for bounds checking
-    const isAtStart = currentStep === 0
-    const isAtEnd = currentStep >= totalSteps - 1
-
-    // Current step data
-    const step = useMemo(() => {
-        if (totalSteps === 0) return null
-        return steps[currentStep] ?? null
-    }, [steps, currentStep, totalSteps])
-
-    // Navigation control callbacks
-    const first = useCallback(() => {
-        setCurrentStep(0)
-    }, [])
-
-    const prev = useCallback(() => {
-        setCurrentStep(s => Math.max(0, s - 1))
-    }, [])
-
-    const next = useCallback(() => {
-        setCurrentStep(s => Math.min(totalSteps - 1, s + 1))
-    }, [totalSteps])
-
-    const last = useCallback(() => {
-        setCurrentStep(Math.max(0, totalSteps - 1))
-    }, [totalSteps])
-
-    const jumpTo = useCallback((step: number) => {
-        const clampedStep = Math.max(0, Math.min(totalSteps - 1, step))
-        setCurrentStep(clampedStep)
-    }, [totalSteps])
-
-    // Playback control callbacks
-    const play = useCallback(() => {
-        if (!isAtEnd) {
-            setIsPlaying(true)
-        }
-    }, [isAtEnd])
-
-    const pause = useCallback(() => {
-        setIsPlaying(false)
-    }, [])
-
-    const toggle = useCallback(() => {
-        if (isPlaying) {
-            pause()
-        } else {
-            play()
-        }
-    }, [isPlaying, play, pause])
-
-    const handleSetSpeed = useCallback((newSpeed: PlaybackSpeed) => {
-        setSpeed(newSpeed)
-    }, [])
-
-    // Auto-play timer effect
-    useEffect(() => {
-        if (!isPlaying || totalSteps === 0) return
-
-        // Calculate interval based on speed
-        const interval = BASE_INTERVAL_MS / speed
-
-        const timerId = setInterval(() => {
-            setCurrentStep(s => {
-                const nextStep = s + 1
-                if (nextStep >= totalSteps) {
-                    setIsPlaying(false)
-                    return s
-                }
-                return nextStep
-            })
-        }, interval)
-
-        return () => clearInterval(timerId)
-    }, [isPlaying, speed, totalSteps])
-
-    // Pause when reaching end
-    useEffect(() => {
-        if (isAtEnd && isPlaying) {
-            setIsPlaying(false)
-        }
-    }, [isAtEnd, isPlaying])
-
-    // Memoize controls object to prevent unnecessary re-renders
-    const controls: PlaybackControls = useMemo(() => ({
-        first,
-        prev,
-        next,
-        last,
-        jumpTo,
-        play,
-        pause,
-        toggle,
-        setSpeed: handleSetSpeed,
-    }), [first, prev, next, last, jumpTo, play, pause, toggle, handleSetSpeed])
-
-    return {
-        currentStep,
-        step,
-        totalSteps,
-        controls,
-        isPlaying,
-        speed,
-        isAtStart,
-        isAtEnd,
+  const clearTimers = useCallback(() => {
+    if (intervalRef.current) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
+    if (rafRef.current) {
+      window.cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  const next = useCallback(() => {
+    options.setStep(Math.min(totalSteps - 1, currentStep + 1));
+  }, [currentStep, options, totalSteps]);
+
+  useEffect(() => {
+    if (!isPlaying || isAtEnd || totalSteps === 0) {
+      clearTimers();
+      return;
+    }
+
+    const interval = BASE_INTERVAL_MS / speed;
+    if (speed === 0.5) {
+      const tick = (ts: number) => {
+        if (!lastTsRef.current) lastTsRef.current = ts;
+        const elapsed = ts - lastTsRef.current;
+        if (elapsed >= interval) {
+          options.setStep(Math.min(totalSteps - 1, options.currentStep + 1));
+          lastTsRef.current = ts;
+        }
+        rafRef.current = window.requestAnimationFrame(tick);
+      };
+      rafRef.current = window.requestAnimationFrame(tick);
+      return clearTimers;
+    }
+
+    intervalRef.current = window.setInterval(() => {
+      options.setStep(Math.min(totalSteps - 1, options.currentStep + 1));
+    }, interval);
+
+    return clearTimers;
+  }, [clearTimers, isAtEnd, isPlaying, options, speed, totalSteps]);
+
+  useEffect(() => {
+    if (isAtEnd && isPlaying) {
+      options.setPlaying(false);
+    }
+  }, [isAtEnd, isPlaying, options]);
+
+  useEffect(() => () => clearTimers(), [clearTimers]);
+
+  const controls = useMemo<PlaybackControls>(
+    () => ({
+      first: () => options.setStep(0),
+      prev: () => options.setStep(Math.max(0, currentStep - 1)),
+      next,
+      last: () => options.setStep(Math.max(0, totalSteps - 1)),
+      jumpTo: (step) => options.setStep(Math.max(0, Math.min(totalSteps - 1, step))),
+      play: () => !isAtEnd && options.setPlaying(true),
+      pause: () => options.setPlaying(false),
+      toggle: () => options.setPlaying(!isPlaying),
+      setSpeed: options.setSpeed,
+    }),
+    [currentStep, isAtEnd, isPlaying, next, options, totalSteps],
+  );
+
+  return {
+    currentStep,
+    step: (steps[currentStep] as TraceStep | undefined) ?? null,
+    totalSteps,
+    controls,
+    isPlaying,
+    speed,
+    isAtStart,
+    isAtEnd,
+  };
 }

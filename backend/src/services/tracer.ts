@@ -267,6 +267,9 @@ async function runTraceCollection(
   const env = [
     `TRACE_MAX_STEPS=${maxSteps}`,
     `TRACE_OUTPUT=/workspace/trace.json`,
+    `TRACE_STEPS_FILE=/workspace/trace_steps.jsonl`,
+    `TRACE_STDOUT_FILE=/workspace/stdout.txt`,
+    `TRACE_STDERR_FILE=/workspace/stderr.txt`,
   ];
 
   // Write input file if stdin provided
@@ -287,7 +290,8 @@ async function runTraceCollection(
         // Note: The executor image should have trace_collector.py in /scripts
       ],
       env,
-      timeoutMs: options.timeoutMs || config.MAX_COMPILE_TIMEOUT_MS,
+      timeoutMs: options.timeoutMs || config.TRACE_TIMEOUT_MS,
+      memoryBytes: config.TRACE_CONTAINER_MEMORY_MB * 1024 * 1024,
     });
 
     // Check if GDB execution succeeded

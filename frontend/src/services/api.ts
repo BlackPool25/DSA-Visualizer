@@ -1,10 +1,3 @@
-/**
- * API Service
- * 
- * Provides functions to interact with the DSA Visualizer backend API.
- * Uses native fetch API with proper error handling and TypeScript types.
- */
-
 import type {
   CompileRequest,
   CompileResponse,
@@ -12,176 +5,68 @@ import type {
   RunResponse,
   TraceRequest,
   TraceResponse,
-  Problem,
-} from '../types/index.js'
+} from "../types/index.js";
 
-/** 
- * Base URL for API requests
- * In development with Docker, the Vite proxy handles /api requests
- * In production or local development, use the full backend URL
- */
-const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+export class ApiError extends Error {
+  status: number;
+  retryAfter?: number;
 
-/**
- * Generic fetch wrapper with error handling
- * 
- * @param endpoint - API endpoint path (without base URL)
- * @param options - Fetch options
- * @returns Promise with parsed JSON response
- * @throws Error if request fails
- */
-/** API response wrapper type */
-interface ApiResponse<T> {
-  success: boolean
-  data: T
-  error?: string
+  constructor(message: string, status = 500, retryAfter?: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
 }
 
-/**
- * Generic fetch wrapper with error handling
- * Automatically unwraps { success, data } responses from backend
- * 
- * @param endpoint - API endpoint path (without base URL)
- * @param options - Fetch options
- * @returns Promise with unwrapped data
- * @throws Error if request fails or response indicates failure
- */
-async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`
+function normalizeBaseUrl(rawUrl: string): string {
+  return rawUrl.replace(/\/+$/, "");
+}
 
-  const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    ...options,
-  })
+async function apiFetch<T>(
+  backendUrl: string,
+  endpoint: string,
+  body: unknown,
+): Promise<T> {
+  const response = await fetch(`${normalizeBaseUrl(backendUrl)}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const retryAfterHeader = response.headers.get("retry-after");
+  const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined;
 
   if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`API Error ${response.status}: ${errorText || response.statusText}`)
+    const text = await response.text();
+    throw new ApiError(text || response.statusText, response.status, retryAfter);
   }
 
-  const json = await response.json()
-
-  // Unwrap if wrapped in { success, data } format
-  if (json && typeof json === 'object' && 'data' in json && 'success' in json) {
-    const apiResponse = json as ApiResponse<T>
-    if (!apiResponse.success) {
-      throw new Error(apiResponse.error || 'API request failed')
-    }
-    return apiResponse.data
+  const json = (await response.json()) as T & { success?: boolean; error?: string };
+  if (typeof json === "object" && json && "success" in json && json.success === false) {
+    throw new ApiError(json.error || "Request failed", response.status, retryAfter);
   }
 
-  return json as T
+  return json as T;
 }
 
-/**
- * Fetch list of problems with optional filtering
- * 
- * @param page - Page number for pagination (default: 1)
- * @param difficulty - Filter by difficulty level
- * @param tags - Filter by topic tags
- * @returns Array of problems
- */
-/**
- * Fetch list of problems with optional filtering
- * 
- * Note: Backend returns Problem[] directly, not wrapped in ProblemListResponse.
- * This is because the LeetCode GraphQL client returns a simple array.
- * 
- * @param page - Page number for pagination (default: 1)
- * @param difficulty - Filter by difficulty level
- * @param tags - Filter by topic tags
- * @returns Array of problems matching the filters
- */
-export async function fetchProblems(
-  page?: number,
-  difficulty?: string,
-  tags?: string[]
-): Promise<Problem[]> {
-  const params = new URLSearchParams()
-  if (page) params.append('page', page.toString())
-  if (difficulty) params.append('difficulty', difficulty)
-  if (tags && tags.length > 0) params.append('tags', tags.join(','))
-
-  const query = params.toString() ? `?${params.toString()}` : ''
-  return apiFetch<Problem[]>(`/api/problems${query}`)
+export function compileCode(
+  backendUrl: string,
+  request: CompileRequest,
+): Promise<CompileResponse> {
+  return apiFetch<CompileResponse>(backendUrl, "/api/compile", request);
 }
 
-/**
- * Fetch a single problem by its slug
- * 
- * @param slug - Problem title slug
- * @returns Problem details
- */
-export async function fetchProblem(slug: string): Promise<Problem> {
-  return apiFetch<Problem>(`/api/problems/${encodeURIComponent(slug)}`)
+export function runCode(
+  backendUrl: string,
+  request: RunRequest,
+): Promise<RunResponse> {
+  return apiFetch<RunResponse>(backendUrl, "/api/run", request);
 }
 
-/**
- * Compile C++ source code
- * 
- * @param code - Source code to compile
- * @returns Compilation result with binary ID or errors
- */
-export async function compileCode(code: string): Promise<CompileResponse> {
-  const request: CompileRequest = { code, language: 'cpp' }
-  return apiFetch<CompileResponse>('/api/compile', {
-    method: 'POST',
-    body: JSON.stringify(request),
-  })
-}
-
-/**
- * Run compiled code with input
- * 
- * @param binaryId - Binary ID from successful compilation
- * @param stdin - Standard input for the program
- * @returns Execution output
- */
-export async function runCode(binaryId: string, stdin: string): Promise<RunResponse> {
-  const request: RunRequest = { binaryId, stdin }
-  return apiFetch<RunResponse>('/api/run', {
-    method: 'POST',
-    body: JSON.stringify(request),
-  })
-}
-
-/**
- * Generate execution trace for code
- * 
- * @param code - Source code to trace
- * @param stdin - Standard input for the program
- * @param maxSteps - Maximum number of steps to capture
- * @returns Execution trace data
- */
-export async function traceCode(
-  code: string,
-  stdin: string,
-  maxSteps?: number
+export function traceCode(
+  backendUrl: string,
+  request: TraceRequest,
 ): Promise<TraceResponse> {
-  const request: TraceRequest = { code, stdin, maxSteps }
-  return apiFetch<TraceResponse>('/api/trace', {
-    method: 'POST',
-    body: JSON.stringify(request),
-  })
-}
-
-/**
- * Generate test harness for problem
- * 
- * @param slug - Problem slug
- * @param code - User solution code
- * @param testInput - Test case input
- * @returns Response from harness generation
- */
-export async function generateHarness(
-  slug: string,
-  code: string,
-  testInput: string
-): Promise<{ harnessedCode: string }> {
-  return apiFetch<{ harnessedCode: string }>('/api/harness', {
-    method: 'POST',
-    body: JSON.stringify({ code, slug, testInput }),
-  })
+  return apiFetch<TraceResponse>(backendUrl, "/api/trace", request);
 }

@@ -9,15 +9,8 @@
  * - Step counter display
  */
 
-import {
-    SkipBack,
-    ChevronLeft,
-    ChevronRight,
-    SkipForward,
-    Play,
-    Pause,
-} from 'lucide-react'
-import type { PlaybackControls, PlaybackSpeed } from '../../hooks/useTracePlayback.js'
+import { Pause, Play } from "lucide-react";
+import type { PlaybackControls, PlaybackSpeed } from "../../hooks/useTracePlayback.js";
 
 /** Props for TimelineControls component */
 interface TimelineControlsProps {
@@ -43,34 +36,18 @@ const SPEED_OPTIONS: PlaybackSpeed[] = [0.5, 1, 2, 4]
 /**
  * Navigation button component with consistent styling
  */
-function NavButton({
-    onClick,
-    disabled,
-    children,
-    title
-}: {
-    onClick: () => void
-    disabled: boolean
-    children: React.ReactNode
-    title: string
-}) {
-    return (
-        <button
-            onClick={onClick}
-            disabled={disabled}
-            title={title}
-            className={`
-        flex items-center gap-1 px-3 py-2 rounded-md font-medium text-sm
-        transition-colors duration-150
-        ${disabled
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300 active:bg-gray-400'
-                }
-      `}
-        >
-            {children}
-        </button>
-    )
+function NavButton({ onClick, disabled, label, title }: { onClick: () => void; disabled: boolean; label: string; title: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`rounded border px-2 py-1 font-mono text-xs ${disabled ? "border-zinc-700 text-zinc-600" : "border-zinc-500 text-zinc-100 hover:bg-zinc-700"}`}
+    >
+      {label}
+    </button>
+  );
 }
 
 /**
@@ -104,125 +81,51 @@ export function TimelineControls({
     isAtEnd,
 }: TimelineControlsProps) {
     // Handle empty trace
-    if (totalSteps === 0) {
-        return (
-            <div className="flex items-center justify-center p-4 bg-gray-50 border-t border-gray-200">
-                <span className="text-gray-500 text-sm">No trace data available</span>
-            </div>
-        )
-    }
+  if (totalSteps === 0) return null;
 
-    return (
-        <div className="flex items-center gap-4 p-4 bg-gray-50 border-t border-gray-200">
-            {/* Navigation buttons */}
-            <div className="flex items-center gap-1">
-                <NavButton
-                    onClick={controls.first}
-                    disabled={isAtStart}
-                    title="First step"
-                >
-                    <SkipBack className="w-4 h-4" />
-                    First
-                </NavButton>
-
-                <NavButton
-                    onClick={controls.prev}
-                    disabled={isAtStart}
-                    title="Previous step"
-                >
-                    <ChevronLeft className="w-4 h-4" />
-                    Prev
-                </NavButton>
-            </div>
-
-            {/* Play/Pause button */}
-            <button
-                onClick={controls.toggle}
-                disabled={isAtEnd && !isPlaying}
-                title={isPlaying ? 'Pause' : 'Play'}
-                className={`
-          flex items-center justify-center w-10 h-10 rounded-full
-          transition-colors duration-150
-          ${isPlaying
-                        ? 'bg-red-500 hover:bg-red-600 text-white'
-                        : isAtEnd
-                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                            : 'bg-blue-500 hover:bg-blue-600 text-white'
-                    }
-        `}
-            >
-                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-            </button>
-
-            {/* Timeline slider */}
-            <div className="flex-1 flex items-center gap-3">
-                <input
-                    type="range"
-                    min={0}
-                    max={totalSteps - 1}
-                    value={currentStep}
-                    onChange={(e) => controls.jumpTo(parseInt(e.target.value))}
-                    className="flex-1 h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer
-            [&::-webkit-slider-thumb]:appearance-none
-            [&::-webkit-slider-thumb]:w-4
-            [&::-webkit-slider-thumb]:h-4
-            [&::-webkit-slider-thumb]:bg-blue-500
-            [&::-webkit-slider-thumb]:rounded-full
-            [&::-webkit-slider-thumb]:cursor-pointer
-            [&::-webkit-slider-thumb]:hover:bg-blue-600
-            [&::-moz-range-thumb]:w-4
-            [&::-moz-range-thumb]:h-4
-            [&::-moz-range-thumb]:bg-blue-500
-            [&::-moz-range-thumb]:rounded-full
-            [&::-moz-range-thumb]:cursor-pointer
-            [&::-moz-range-thumb]:border-0"
-                />
-            </div>
-
-            {/* Navigation buttons (forward) */}
-            <div className="flex items-center gap-1">
-                <NavButton
-                    onClick={controls.next}
-                    disabled={isAtEnd}
-                    title="Next step"
-                >
-                    Next
-                    <ChevronRight className="w-4 h-4" />
-                </NavButton>
-
-                <NavButton
-                    onClick={controls.last}
-                    disabled={isAtEnd}
-                    title="Last step"
-                >
-                    Last
-                    <SkipForward className="w-4 h-4" />
-                </NavButton>
-            </div>
-
-            {/* Step counter */}
-            <div className="flex items-center gap-3 min-w-[140px]">
-                <span className="text-sm font-medium text-gray-700 tabular-nums">
-                    Step {currentStep + 1} of {totalSteps}
-                </span>
-            </div>
-
-            {/* Speed selector */}
-            <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Speed:</span>
-                <select
-                    value={speed}
-                    onChange={(e) => controls.setSpeed(parseFloat(e.target.value) as PlaybackSpeed)}
-                    className="px-2 py-1 text-sm border border-gray-300 rounded-md bg-white
-            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                    {SPEED_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                            {s}x
-                        </option>
-                    ))}
-                </select>
-            </div>
-        </div>
-    )
+  return (
+    <div className="border-t border-zinc-700 bg-[#252526] p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <NavButton onClick={controls.first} disabled={isAtStart} title="First step" label="|◀" />
+        <NavButton onClick={controls.prev} disabled={isAtStart} title="Previous step" label="◀" />
+        <input
+          type="range"
+          min={0}
+          max={totalSteps - 1}
+          value={currentStep}
+          onChange={(e) => controls.jumpTo(Number(e.target.value))}
+          className="h-2 flex-1 accent-[#007acc]"
+        />
+        <NavButton onClick={controls.next} disabled={isAtEnd} title="Next step" label="▶" />
+        <NavButton onClick={controls.last} disabled={isAtEnd} title="Last step" label="▶|" />
+        <span className="min-w-28 text-xs font-mono text-zinc-300">
+          Step {currentStep + 1} / {totalSteps}
+        </span>
+      </div>
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={controls.toggle}
+          className="flex items-center gap-1 rounded border border-zinc-500 px-2 py-1 text-xs text-zinc-100 hover:bg-zinc-700"
+        >
+          {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+          {isPlaying ? "Pause" : "Play"}
+        </button>
+        <label className="flex items-center gap-2 text-xs text-zinc-300">
+          Speed
+          <select
+            value={speed}
+            onChange={(e) => controls.setSpeed(Number(e.target.value) as PlaybackSpeed)}
+            className="rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-xs"
+          >
+            {SPEED_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}x
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
+  );
 }

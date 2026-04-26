@@ -30,46 +30,118 @@ from value_serializer import serialize_value
 
 
 # Global state for trace collection - using globals works correctly with GDB's event system
-_trace: List[Dict[str, Any]] = []
 _max_steps: int = 1000
 _step_count: int = 0
 _output_file: str = "trace.json"
-_heap: Dict[str, Any] = {}
 _start_time: float = 0
+_stdout_file: str = "/workspace/stdout.txt"
+_stderr_file: str = "/workspace/stderr.txt"
+_trace_steps_file: str = "/workspace/trace_steps.jsonl"
+_max_stack_frames: int = 24
+_max_locals_per_frame: int = 40
+_max_stdout_chars: int = 4096
+_last_frame_locals: Dict[str, Dict[str, Any]] = {}
+
+def _read_text_file(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+def _is_user_source_path(fullname: str, filename: str) -> bool:
+    """
+    Recognize user source in common GDB formats:
+    - /workspace/solution.cpp
+    - solution.cpp
+    """
+    if fullname and fullname.endswith("/solution.cpp"):
+        return True
+    if filename == "solution.cpp":
+        return True
+    return False
+
+def is_library_frame(frame: gdb.Frame) -> bool:
+    """Return True when frame is from STL/runtime internals."""
+    try:
+        name = frame.name() or ""
+        if (
+            name.startswith("std::")
+            or name.startswith("__gnu_cxx::")
+            or name.startswith("__libc")
+            or name.startswith("pthread_")
+            or name.startswith("_")
+        ):
+            return True
+
+        sal = frame.find_sal()
+        if not sal or not sal.symtab:
+            # Frames without source mapping are almost always runtime internals.
+            return True
+        if sal and sal.symtab:
+            full = sal.symtab.fullname() or ""
+            filename = sal.symtab.filename or ""
+            if not _is_user_source_path(full, filename):
+                # Files from system headers/runtime should be considered non-user.
+                return True
+    except Exception:
+        return True
+    return False
 
 
-def capture_frame(frame: gdb.Frame, idx: int) -> Dict[str, Any]:
+def capture_frame(frame: gdb.Frame, idx: int, step_heap: Dict[str, Any]) -> Dict[str, Any]:
     """Capture state of a single stack frame."""
     try:
         func_name = frame.name() or "unknown"
         sal = frame.find_sal()
         
         # Get local variables
-        locals_dict = {}
+        locals_dict: Dict[str, Any] = {}
+        locals_seen = 0
+        frame_visited = set()
         try:
             block = frame.block()
-            while block:
+            # Capture current block + immediate parent block. This includes function
+            # arguments like vector<int>& arr without walking deep into internal scopes.
+            levels = 0
+            while block and levels < 2:
                 for symbol in block:
+                    if locals_seen >= _max_locals_per_frame:
+                        break
                     if symbol.is_variable or symbol.is_argument:
                         name = symbol.name
-                        if name not in locals_dict and not name.startswith("_"):
+                        if (
+                            name not in locals_dict
+                            and not name.startswith("_")
+                            and "::" not in name
+                        ):
                             try:
                                 value = frame.read_var(symbol)
-                                serialized = serialize_value(value, name)
+                                serialized = serialize_value(value, step_heap, frame_visited)
                                 if serialized is not None:
                                     locals_dict[name] = serialized
+                                    locals_seen += 1
                             except:
                                 pass
+                if locals_seen >= _max_locals_per_frame:
+                    break
                 block = block.superblock
+                levels += 1
         except:
             pass
         
+        frame_key = f"{idx}:{func_name}"
+        cached = _last_frame_locals.get(frame_key, {})
+        merged_locals = dict(cached)
+        merged_locals.update(locals_dict)
+        _last_frame_locals[frame_key] = merged_locals
+
         return {
             "frameId": f"frame_{idx}",
             "function": func_name,
             "file": sal.symtab.filename if sal.symtab else "unknown",
             "line": sal.line if sal.line else 0,
-            "locals": locals_dict,
+            "locals": merged_locals,
         }
     except gdb.error as e:
         return {
@@ -84,32 +156,49 @@ def capture_frame(frame: gdb.Frame, idx: int) -> Dict[str, Any]:
 
 def capture_state() -> Dict[str, Any]:
     """Capture complete program state at current execution point."""
-    global _step_count, _heap
+    global _step_count
     
     try:
         frame = gdb.selected_frame()
         sal = frame.find_sal()
         
-        # Build call stack
+        # Step-local heap snapshot. Do not accumulate across steps.
+        step_heap: Dict[str, Any] = {}
+
+        # Build call stack (user frames only)
         call_stack = []
         current = frame
         idx = 0
+        primary_user_sal = None
         while current:
             try:
-                call_stack.append(capture_frame(current, idx))
-                idx += 1
+                if not is_library_frame(current):
+                    call_stack.append(capture_frame(current, idx, step_heap))
+                    if primary_user_sal is None:
+                        primary_user_sal = current.find_sal()
+                    idx += 1
+                    if idx >= _max_stack_frames:
+                        break
                 current = current.older()
             except:
                 break
+
+        # Skip state if we are not in user code.
+        if primary_user_sal is None:
+            return None
         
+        current_stdout = _read_text_file(_stdout_file)
+        if len(current_stdout) > _max_stdout_chars:
+            current_stdout = current_stdout[-_max_stdout_chars:]
+
         return {
             "stepIndex": _step_count,
-            "line": sal.line if sal.line else 0,
-            "file": sal.symtab.filename if sal.symtab else "unknown",
+            "line": primary_user_sal.line if primary_user_sal.line else 0,
+            "file": primary_user_sal.symtab.filename if primary_user_sal.symtab else "unknown",
             "event": "line",
             "callStack": call_stack,
-            "heap": dict(_heap),
-            "stdout": "",
+            "heap": step_heap,
+            "stdout": current_stdout,
         }
     except Exception as e:
         return {
@@ -119,23 +208,37 @@ def capture_state() -> Dict[str, Any]:
             "event": "error",
             "callStack": [],
             "heap": {},
-            "stdout": "",
+            "stdout": _read_text_file(_stdout_file),
             "error": str(e),
         }
 
 
 def stop_handler(event) -> None:
     """Called by GDB when execution stops. Captures state and steps."""
-    global _step_count, _trace, _max_steps
+    global _step_count, _max_steps
     
     if _step_count >= _max_steps:
         return
     
     try:
+        selected = gdb.selected_frame()
+
+        # If currently in STL/runtime internals, jump back to caller frame.
+        if is_library_frame(selected):
+            try:
+                gdb.execute("finish", to_string=True)
+            except gdb.error:
+                pass
+            return
+
         # Capture current program state
         state = capture_state()
-        _trace.append(state)
-        _step_count += 1
+        if state is not None:
+            # Stream each step to disk immediately to avoid unbounded memory growth.
+            with open(_trace_steps_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(state))
+                f.write("\n")
+            _step_count += 1
         
         # Step to next line
         try:
@@ -148,46 +251,35 @@ def stop_handler(event) -> None:
 
 
 def write_trace() -> None:
-    """Write collected trace to output file, filtering for Solution:: methods only."""
-    global _trace, _output_file, _start_time
+    """Write collected trace to output file."""
+    global _output_file, _start_time, _trace_steps_file, _step_count
     
     import time
     execution_time = int((time.time() - _start_time) * 1000)
     
-    # Filter trace to only include steps where we're in Solution:: methods
-    filtered_trace = []
-    for step in _trace:
-        call_stack = step.get("callStack", [])
-        # Check if any frame in the call stack is a Solution:: method
-        in_solution = any(
-            "Solution::" in frame.get("function", "")
-            for frame in call_stack
-        )
-        if in_solution:
-            # Renumber step indices for the filtered trace
-            step["stepIndex"] = len(filtered_trace)
-            filtered_trace.append(step)
-    
-    print(f"Filtered {len(_trace)} total steps to {len(filtered_trace)} Solution steps")
-    
-    # Format output
-    output = {
-        "steps": filtered_trace,
-        "totalSteps": len(filtered_trace),
-        "executionTime": execution_time,
-    }
-    
     try:
-        with open(_output_file, "w") as f:
-            json.dump(output, f, indent=2)
-        print(f"Trace written to {_output_file} ({len(filtered_trace)} steps)")
+        with open(_output_file, "w", encoding="utf-8") as out:
+            out.write('{"steps":[')
+            first = True
+            if os.path.exists(_trace_steps_file):
+                with open(_trace_steps_file, "r", encoding="utf-8", errors="replace") as steps:
+                    for line in steps:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if not first:
+                            out.write(",")
+                        out.write(line)
+                        first = False
+            out.write(f'],"totalSteps":{_step_count},"executionTime":{execution_time}' + "}")
+        print(f"Trace written to {_output_file} ({_step_count} steps)")
     except Exception as e:
         print(f"Error writing trace: {e}")
 
 
 def run() -> None:
     """Main entry point - sets up GDB and runs the trace collection."""
-    global _output_file, _max_steps, _start_time
+    global _output_file, _max_steps, _start_time, _stdout_file, _stderr_file, _trace_steps_file, _step_count, _last_frame_locals
     
     import time
     _start_time = time.time()
@@ -195,6 +287,18 @@ def run() -> None:
     # Get configuration from environment
     _output_file = os.environ.get("TRACE_OUTPUT", "trace.json")
     _max_steps = int(os.environ.get("TRACE_MAX_STEPS", "1000"))
+    _stdout_file = os.environ.get("TRACE_STDOUT_FILE", "/workspace/stdout.txt")
+    _stderr_file = os.environ.get("TRACE_STDERR_FILE", "/workspace/stderr.txt")
+    _trace_steps_file = os.environ.get("TRACE_STEPS_FILE", "/workspace/trace_steps.jsonl")
+    _step_count = 0
+    _last_frame_locals = {}
+
+    # Start with a clean step stream file.
+    try:
+        if os.path.exists(_trace_steps_file):
+            os.remove(_trace_steps_file)
+    except Exception:
+        pass
     
     print("Trace collector starting...")
     print(f"Output file: {_output_file}")
@@ -220,7 +324,7 @@ def run() -> None:
         run_cmd = "run"
         if input_file and os.path.exists(input_file):
             run_cmd += f" < {input_file}"
-        run_cmd += " > /dev/null 2>&1"
+        run_cmd += f" > {_stdout_file} 2> {_stderr_file}"
         
         print("Starting trace collection...")
         gdb.execute(run_cmd)

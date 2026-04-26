@@ -110,6 +110,9 @@ export interface ContainerRunOptions {
 
   /** Maximum output size in bytes (default: 10MB) */
   maxOutputSize?: number;
+
+  /** Optional memory override in bytes for this run */
+  memoryBytes?: number;
 }
 
 /**
@@ -256,6 +259,7 @@ export async function runInContainer(
       Env: options.env || [],
       HostConfig: {
         ...hostConfigSettings,
+        ...(options.memoryBytes ? { Memory: options.memoryBytes } : {}),
         Binds: options.binds || [],
       },
     };

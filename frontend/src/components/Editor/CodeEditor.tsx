@@ -34,6 +34,10 @@ interface CodeEditorProps {
   highlightLine?: number;
   /** Validation markers to display (compilation errors, etc.) */
   markers?: ValidationMarker[];
+  /** Editor color theme */
+  theme?: "vs-dark" | "vs-light";
+  /** Optional line to focus in view */
+  focusLine?: number | null;
 }
 
 /**
@@ -61,6 +65,8 @@ export function CodeEditor({
   readOnly = false,
   highlightLine,
   markers = [],
+  theme = "vs-dark",
+  focusLine = null,
 }: CodeEditorProps) {
   // Refs for editor and monaco instances
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -103,7 +109,7 @@ export function CodeEditor({
             className: "current-line-highlight",
             glyphMarginClassName: "current-line-glyph",
             overviewRuler: {
-              color: "rgba(59, 130, 246, 0.5)",
+              color: "rgba(245, 158, 11, 0.8)",
               position: monaco.editor.OverviewRulerLane.Full,
             },
           },
@@ -120,6 +126,13 @@ export function CodeEditor({
     }
   }, [highlightLine]);
 
+  useEffect(() => {
+    if (!focusLine || !editorRef.current) return;
+    editorRef.current.revealLineInCenter(focusLine);
+    editorRef.current.setPosition({ lineNumber: focusLine, column: 1 });
+    editorRef.current.focus();
+  }, [focusLine]);
+
   /**
    * Update validation markers when they change
    */
@@ -127,7 +140,12 @@ export function CodeEditor({
     const editor = editorRef.current;
     const monaco = monacoRef.current;
 
-    if (!editor || !monaco || markers.length === 0) return;
+    if (!editor || !monaco) return;
+
+    if (markers.length === 0) {
+      monaco.editor.setModelMarkers(editor.getModel()!, "validation", []);
+      return;
+    }
 
     // Convert markers to Monaco model markers
     const modelMarkers = markers.map((marker) => ({
@@ -160,11 +178,11 @@ export function CodeEditor({
       {/* Custom CSS for line highlighting */}
       <style>{`
         .current-line-highlight {
-          background-color: rgba(59, 130, 246, 0.25) !important;
-          border-left: 3px solid #3b82f6 !important;
+          background-color: rgba(245, 158, 11, 0.15) !important;
+          border-left: 3px solid #f59e0b !important;
         }
         .current-line-glyph {
-          background-color: #3b82f6;
+          background-color: #f59e0b;
           margin-left: 3px;
           border-radius: 2px;
         }
@@ -182,7 +200,7 @@ export function CodeEditor({
       <Editor
         value={value}
         language={language}
-        theme="vs-dark"
+        theme={theme}
         onChange={(newValue) => onChange(newValue || "")}
         onMount={handleEditorMount}
         options={{

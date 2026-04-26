@@ -64,9 +64,8 @@ export interface PrimitiveValue {
 /** Pointer/reference value */
 export interface PointerValue {
   kind: "pointer";
-  /** Object ID or null if nullptr */
-  ref: string | null;
-  type: string;
+  /** Address of referenced object, null for nullptr */
+  address: string | null;
 }
 
 /** Container value (arrays, vectors, etc.) */
@@ -79,14 +78,12 @@ export interface ContainerValue {
 
 /** Complete execution trace */
 export interface FullTrace {
-  /** Source code being executed */
-  code?: string;
   /** Execution steps */
   steps: TraceStep[];
   /** Total number of steps */
-  totalSteps?: number;
+  totalSteps: number;
   /** Execution time in milliseconds */
-  executionTime?: number;
+  executionTime: number;
   /** Error message if execution failed */
   error?: string;
 }

@@ -12,8 +12,10 @@ import type { FullTrace } from './trace.js';
 export interface CompileRequest {
   /** Source code to compile */
   code: string;
-  /** Programming language (only C++ supported for now) */
-  language: 'cpp';
+  /** Compiler binary */
+  compiler?: "g++" | "clang++";
+  /** Additional compiler flags */
+  flags?: string[];
 }
 
 /** Single compilation error */
@@ -34,6 +36,8 @@ export interface CompileResponse {
   errors?: CompileError[];
   /** Binary ID for execution (random UUID, not a file path) */
   binaryId?: string;
+  /** Compilation duration in milliseconds */
+  duration?: number;
 }
 
 // ========== Run ==========
@@ -43,11 +47,13 @@ export interface RunRequest {
   /** Binary ID from compile response */
   binaryId: string;
   /** Standard input for the program */
-  stdin: string;
+  stdin?: string;
 }
 
 /** Response from run request */
 export interface RunResponse {
+  /** Whether execution succeeded */
+  success?: boolean;
   /** Program stdout */
   stdout: string;
   /** Program stderr */
@@ -55,7 +61,9 @@ export interface RunResponse {
   /** Exit code (0 = success) */
   exitCode: number;
   /** Whether execution timed out */
-  timedOut: boolean;
+  timedOut?: boolean;
+  /** Execution duration in milliseconds */
+  duration?: number;
 }
 
 // ========== Trace ==========
@@ -65,21 +73,31 @@ export interface TraceRequest {
   /** Source code to trace */
   code: string;
   /** Standard input for the program */
-  stdin: string;
+  stdin?: string;
   /** Maximum number of steps to capture */
   maxSteps?: number;
 }
 
 /** Successful trace response */
 export interface TraceSuccessResponse {
+  /** Whether request succeeded */
+  success: true;
   /** Execution trace data */
   trace: FullTrace;
+  /** Endpoint duration in milliseconds */
+  duration?: number;
 }
 
 /** Error trace response */
 export interface TraceErrorResponse {
+  /** Whether request succeeded */
+  success: false;
   /** Error message */
   error: string;
+  /** Compilation errors if trace failed at compile stage */
+  compileErrors?: CompileError[];
+  /** Endpoint duration in milliseconds */
+  duration?: number;
 }
 
 /** Response from trace request */

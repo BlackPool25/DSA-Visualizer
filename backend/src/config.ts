@@ -33,6 +33,15 @@ export const config = {
   /** Maximum number of trace steps to capture (default: 5000) */
   MAX_TRACE_STEPS: parseInt(process.env.MAX_TRACE_STEPS || "5000", 10),
 
+  /** Trace execution timeout in milliseconds (default: 120 seconds) */
+  TRACE_TIMEOUT_MS: parseInt(process.env.TRACE_TIMEOUT_MS || "120000", 10),
+
+  /** Memory budget for trace containers in MB (default: 1024MB) */
+  TRACE_CONTAINER_MEMORY_MB: parseInt(
+    process.env.TRACE_CONTAINER_MEMORY_MB || "1024",
+    10,
+  ),
+
   /** Directory for temporary files - defaults to system temp directory */
   TEMP_DIR: process.env.TEMP_DIR || "/tmp/dsa-visualizer",
 
@@ -78,6 +87,17 @@ export function validateConfig(): void {
 
   if (config.MAX_TRACE_STEPS <= 0 || config.MAX_TRACE_STEPS > 50000) {
     throw new Error("MAX_TRACE_STEPS must be between 1 and 50000");
+  }
+
+  if (config.TRACE_TIMEOUT_MS <= 0) {
+    throw new Error("TRACE_TIMEOUT_MS must be a positive number");
+  }
+
+  if (
+    config.TRACE_CONTAINER_MEMORY_MB <= 0 ||
+    config.TRACE_CONTAINER_MEMORY_MB > 8192
+  ) {
+    throw new Error("TRACE_CONTAINER_MEMORY_MB must be between 1 and 8192");
   }
 
   console.log("✓ Configuration validated successfully");
