@@ -34,7 +34,7 @@ const CallStackFrameSchema = z
     frameId: z.string().optional(),
     function: z.string(),
     file: z.string(),
-    line: z.number().int().positive(),
+    line: z.number().int().nonnegative(),
     locals: z.record(z.unknown()).optional(),
   })
   .passthrough();
@@ -45,7 +45,7 @@ const CallStackFrameSchema = z
  */
 const TraceStepSchema = z.object({
   stepIndex: z.number().int().nonnegative(),
-  line: z.number().int().positive(),
+  line: z.number().int().nonnegative(),
   file: z.string(),
   event: z.string(),
   callStack: z.array(CallStackFrameSchema),

@@ -10,7 +10,9 @@ echo ""
 # Build executor first (backend depends on it)
 echo "📦 Building executor image..."
 docker compose build --no-cache executor
-docker tag dsa-visualiser_executor:latest dsa-executor:latest
+# Docker Compose V2 uses hyphens, V1 uses underscores - handle both
+docker tag dsa-visualiser-executor:latest dsa-executor:latest 2>/dev/null || \
+docker tag dsa-visualiser_executor:latest dsa-executor:latest 2>/dev/null || true
 echo "✓ Executor image built and tagged"
 echo ""
 

@@ -126,7 +126,29 @@ bun run build  # Must build before using in backend/frontend
 
 ### Major Improvements
 
-#### 🎯 Fixed GDB Trace Collection
+#### 🎯 Enhanced GDB Trace Collection (Latest)
+
+- **Improved stepping strategy** - Now uses `step` to enter functions, with automatic `finish` to exit STL code
+- **Solution-focused tracing** - Intelligently detects and traces user Solution class methods
+- **Reduced STL noise** - Automatically skips through standard library internals (vector, string, unordered_map constructors)
+- **Better function tracing** - Successfully steps into user-defined methods like `twoSum()`
+- **Increased default max steps** - Now 5000 steps (previously 1000) to handle complex algorithms
+
+**Technical Details:**
+
+- Uses GDB's `step` command to enter all function calls
+- Detects when execution enters STL/system code by checking function names and file paths
+- Applies `finish` command to quickly exit STL functions without capturing unnecessary steps
+- Uses `set step-mode on` to allow stepping into functions without debug symbols
+- Only captures trace steps when in user-defined Solution methods for cleaner output
+
+#### 🐳 Docker Image Cleanup & Consistency
+
+- **Consolidated naming** - Now uses consistent `dsa-executor:latest` image name
+- **Removed duplicates** - Cleaned up old images with inconsistent names (`dsa-visualiser-executor`, `dsa-visualiser_executor`, `dsa-backend`, etc.)
+- **Build optimization** - Faster rebuilds with proper layer caching
+
+#### 🎯 Fixed GDB Trace Collection (Previous)
 
 - **Steps into user functions** - Now properly traces execution inside `Solution` methods
 - **Suppressed GDB warnings** - Clean trace output without Docker/GDB warnings
@@ -1156,6 +1178,17 @@ MIT
 - Verify GDB trace collector script exists in executor image
 - Check backend logs for detailed error messages
 - Ensure trace rate limit not exceeded (10 requests/minute)
+- Verify test input format: one parameter per line (e.g., `[2,7,11,15]\n9` not `[[2,7,11,15], 9]`)
+
+**Problem**: Trace only shows 2-5 steps or doesn't enter Solution methods
+
+- **Fixed in latest version!** The trace collector now properly steps into user functions
+- If still experiencing issues:
+  - Rebuild executor image: `docker compose build executor`
+  - Tag it properly: `docker tag dsa-visualiser-executor:latest dsa-executor:latest`
+  - Restart services: `docker compose down && docker compose up`
+- Check that Solution class methods are properly named (e.g., `Solution::twoSum`)
+- Verify code compiles with debug symbols (`-g` flag)
 
 **Problem**: Rate limit errors
 
