@@ -50,10 +50,12 @@ async def clean_stdin(code: str, raw_input: str) -> tuple[str, str]:
         cleaned_stdin: The formatted stdin string ready to pipe to the program.
         preview_message: Human-readable description of what was cleaned.
     """
-    if not raw_input.strip():
-        return "", "No input provided (program will read from empty stdin)"
-
     cin_usage = _extract_cin_usage(code)
+    if not raw_input.strip():
+        # Check if the program actually reads stdin
+        if not cin_usage:
+            return "", "Program reads no stdin — running directly"
+        return "", "No input provided (program will read from empty stdin)"
     if not cin_usage:
         # No cin found — return raw input as-is
         return raw_input, "No cin usage found — using raw input as-is"

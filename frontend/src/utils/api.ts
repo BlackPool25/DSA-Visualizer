@@ -10,7 +10,9 @@ import type { CFGEdge, CFGNode } from "../types/cfg";
 import type { ProgramSchema } from "../types/schema";
 import type { TraceEvent } from "../types/trace";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// Empty string = same origin, routed through Vite proxy to the backend.
+// Set VITE_API_URL to override (e.g. in production).
+const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 export interface AnalyzeRequest {
   code: string;
@@ -34,6 +36,7 @@ export interface ExecuteResponse {
   compile_error: string | null;
   runtime_error: string | null;
   timed_out: boolean;
+  truncated: boolean;
   trace: TraceEvent[];
   cfg_nodes: CFGNode[];
   cfg_edges: CFGEdge[];

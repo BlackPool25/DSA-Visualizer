@@ -77,6 +77,9 @@ def build(events: list[Any]) -> tuple[list[CFGNode], list[CFGEdge]]:
     # Loop node tracking: (func, line) → node_id
     loop_nodes: dict[tuple[str, int], str] = {}
 
+    # Recursion tracking: func_name → list of active call depths (for detecting recursion)
+    active_funcs: dict[str, list[int]] = {}
+
     def flush_line_node() -> None:
         nonlocal current_line_node, prev_node_id
         if current_line_node is not None:
@@ -91,28 +94,53 @@ def build(events: list[Any]) -> tuple[list[CFGNode], list[CFGEdge]]:
 
         if t == EventType.FUNC_ENTER:
             flush_line_node()
-            node_id = state.new_id("func_start")
-            node = CFGNode(
-                id=node_id,
-                type=CFGNodeType.FUNC_START,
-                lines=[event.line],
-                label=f"{event.func}()",
-                trace_indices=[idx],
-            )
+            fn = event.func
+            depth = event.depth
+
+            # Detect recursion: same function already active at a lower depth
+            is_recursive = fn in active_funcs and len(active_funcs[fn]) > 0
+
+            active_funcs.setdefault(fn, []).append(depth)
+
+            if is_recursive:
+                # Recursive call — create a FUNC_CALL node instead of FUNC_START
+                node_id = state.new_id("func_call")
+                node = CFGNode(
+                    id=node_id,
+                    type=CFGNodeType.FUNC_CALL,
+                    lines=[event.line],
+                    label=f"↻ {fn}() [depth {depth}]",
+                    trace_indices=[idx],
+                )
+            else:
+                node_id = state.new_id("func_start")
+                node = CFGNode(
+                    id=node_id,
+                    type=CFGNodeType.FUNC_START,
+                    lines=[event.line],
+                    label=f"{fn}()",
+                    trace_indices=[idx],
+                )
             state.add_node(node)
             if prev_node_id:
                 state.add_edge(prev_node_id, node_id)
             prev_node_id = node_id
-            current_func = event.func
+            current_func = fn
 
         elif t == EventType.FUNC_EXIT:
             flush_line_node()
+            fn = event.func
+            # Pop from active_funcs
+            if fn in active_funcs and active_funcs[fn]:
+                active_funcs[fn].pop()
+
             node_id = state.new_id("func_end")
+            ret_label = f"→ {event.return_val}" if event.return_val is not None else "return"
             node = CFGNode(
                 id=node_id,
                 type=CFGNodeType.FUNC_END,
                 lines=[event.line],
-                label=f"return from {event.func}",
+                label=ret_label,
                 trace_indices=[idx],
             )
             state.add_node(node)

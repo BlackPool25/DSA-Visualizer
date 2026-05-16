@@ -7,6 +7,7 @@
  */
 
 import { useTraceStore } from "../../store/traceStore";
+import { CallStackView } from "./CallStackView";
 import { VariableRow } from "./VariableRow";
 
 export function StatePanel() {
@@ -84,6 +85,9 @@ export function StatePanel() {
       <div className="px-3 py-2 border-t border-zinc-800">
         <EventBadge event={currentEvent} />
       </div>
+
+      {/* Call stack */}
+      <CallStackView />
     </div>
   );
 }

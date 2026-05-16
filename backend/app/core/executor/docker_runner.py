@@ -62,23 +62,28 @@ class RunResult:
     exit_code: int = 0
     compile_error: str | None = None
     timed_out: bool = False
+    truncated: bool = False     # True if trace was cut at MAX_TRACE_LINES
 
 
-def _split_stderr(raw: str) -> tuple[list[str], str]:
-    """Split raw stderr into (trace_lines, clean_stderr).
+def _split_stderr(raw: str) -> tuple[list[str], str, bool]:
+    """Split raw stderr into (trace_lines, clean_stderr, truncated).
 
     trace_lines: JSON strings (TRACE: prefix stripped), capped at MAX_TRACE_LINES.
     clean_stderr: everything else.
+    truncated: True if trace was cut.
     """
     trace: list[str] = []
     clean: list[str] = []
+    truncated = False
     for line in raw.splitlines():
         if line.startswith("TRACE:"):
             if len(trace) < MAX_TRACE_LINES:
                 trace.append(line[len("TRACE:"):])
+            else:
+                truncated = True
         else:
             clean.append(line)
-    return trace, "\n".join(clean)
+    return trace, "\n".join(clean), truncated
 
 
 def _is_compile_error(stderr_clean: str, exit_code: int) -> bool:
@@ -93,10 +98,23 @@ def _run_container_sync(cpp_source: str, stdin_data: str) -> RunResult:
     tmp = Path(tempfile.mkdtemp(prefix="dsa_"))
 
     try:
+        # Extract struct serializer block if present (injected by instrument())
+        serializer_code = ""
+        if "// __STRUCT_SERIALIZERS_BEGIN__" in cpp_source:
+            begin = cpp_source.index("// __STRUCT_SERIALIZERS_BEGIN__")
+            end = cpp_source.index("// __STRUCT_SERIALIZERS_END__") + len("// __STRUCT_SERIALIZERS_END__\n")
+            serializer_code = cpp_source[begin + len("// __STRUCT_SERIALIZERS_BEGIN__\n"):cpp_source.index("// __STRUCT_SERIALIZERS_END__")]
+            cpp_source = cpp_source[end:]
+
         # Write files
         (tmp / "prog.cpp").write_text(cpp_source, encoding="utf-8")
         (tmp / "input.txt").write_text(stdin_data, encoding="utf-8")
-        shutil.copy(_TRACER_H, tmp / "tracer.h")
+
+        # Append struct serializers to tracer.h if any
+        tracer_content = _TRACER_H.read_text(encoding="utf-8")
+        if serializer_code:
+            tracer_content += "\n" + serializer_code
+        (tmp / "tracer.h").write_text(tracer_content, encoding="utf-8")
 
         # Make world-readable: tempfile.mkdtemp() creates mode 700
         tmp.chmod(0o755)
@@ -132,7 +150,7 @@ def _run_container_sync(cpp_source: str, stdin_data: str) -> RunResult:
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         raw_stderr = stderr_bytes.decode("utf-8", errors="replace")
-        trace_raw, stderr_clean = _split_stderr(raw_stderr)
+        trace_raw, stderr_clean, truncated = _split_stderr(raw_stderr)
 
         # Detect compile error
         if _is_compile_error(stderr_clean, exit_code) and not trace_raw:
@@ -144,6 +162,7 @@ def _run_container_sync(cpp_source: str, stdin_data: str) -> RunResult:
             trace_raw=trace_raw,
             exit_code=exit_code,
             timed_out=timed_out,
+            truncated=truncated,
         )
 
     finally:

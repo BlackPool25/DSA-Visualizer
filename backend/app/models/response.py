@@ -27,6 +27,10 @@ class ExecuteResponse(BaseModel):
     compile_error: str | None = None
     runtime_error: str | None = None
     timed_out: bool = False
+    truncated: bool = Field(
+        default=False,
+        description="True if trace was cut at MAX_TRACE_LINES — program may have more steps",
+    )
     trace: list[Any] = Field(
         default_factory=list,
         description="Flat list of TraceEvent objects in execution order",

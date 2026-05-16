@@ -39,6 +39,35 @@ export default function App() {
     try {
       const result = await api.analyze({ code, raw_input: rawInput });
       setAnalyzeResult(result.cleaned_stdin, result.stdin_preview, result.struct_schema);
+
+      // If the program reads no stdin and the user provided none, skip the
+      // confirm step and execute immediately — no point making them click twice.
+      const noStdinNeeded =
+        !rawInput.trim() &&
+        !code.includes("cin") &&
+        !code.includes("scanf") &&
+        !code.includes("getline");
+
+      if (noStdinNeeded) {
+        // Execute directly with empty stdin
+        setStatus("executing");
+        try {
+          const execResult = await api.execute({
+            code,
+            cleaned_stdin: "",
+            struct_schema: result.struct_schema,
+          });
+          if (execResult.compile_error) {
+            setExecuteResult("", execResult.compile_error);
+            return;
+          }
+          loadTrace(execResult.trace);
+          loadCFG(execResult.cfg_nodes, execResult.cfg_edges);
+          setExecuteResult(execResult.stdout, null, execResult.truncated);
+        } catch (e) {
+          setError(String(e));
+        }
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -59,7 +88,7 @@ export default function App() {
       }
       loadTrace(result.trace);
       loadCFG(result.cfg_nodes, result.cfg_edges);
-      setExecuteResult(result.stdout, null);
+      setExecuteResult(result.stdout, null, result.truncated);
     } catch (e) {
       setError(String(e));
     }

@@ -26,9 +26,19 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 from .ast_walker import InjectKind, InjectionPoint, WalkResult, walk
 from .scope_tracker import FunctionScope, build_scope_map
+
+# Lazy import to avoid circular dependency
+def _get_serializer_gen():
+    from app.core.llm.serializer_gen import generate
+    return generate
+
+def _get_program_schema():
+    from app.core.trace.models import ProgramSchema
+    return ProgramSchema
 
 
 def _make_vars_args(var_names: list[str]) -> str:
@@ -45,9 +55,17 @@ def _make_vars_args(var_names: list[str]) -> str:
 
 def _trace_enter(point: InjectionPoint) -> str:
     params_args = _make_vars_args(point.param_names)
-    # Only add comma separator if there are params
     sep = ", " if params_args else ""
     return f'__TRACE_FUNC_ENTER("{point.func_name}", {point.depth}{sep}{params_args});'
+
+
+def _trace_exit(point: InjectionPoint) -> str:
+    """Emit __TRACE_FUNC_EXIT with the return expression captured."""
+    ret_expr = point.condition_text  # we reuse condition_text to carry the return expr
+    if ret_expr and ret_expr != "?":
+        return f'__TRACE_FUNC_EXIT({point.line}, "{point.func_name}", {point.depth}, ({ret_expr}));'
+    # void return or no expression
+    return f'__TRACE_FUNC_EXIT_VOID({point.line}, "{point.func_name}", {point.depth});'
 
 
 def _trace_state(point: InjectionPoint, scope: FunctionScope | None) -> str:
@@ -75,12 +93,14 @@ def _trace_loop_iter(point: InjectionPoint) -> str:
     )
 
 
-def instrument(source: str, source_path: str | None = None) -> str:
+def instrument(source: str, source_path: str | None = None, struct_schema=None) -> str:
     """Instrument C++ source by inserting trace calls.
 
     Args:
         source: The original C++ source code as a string.
         source_path: Optional path hint for libclang. If None, written to a temp file.
+        struct_schema: Optional ProgramSchema — if provided, generated struct
+                       serializers are appended to tracer.h content inline.
 
     Returns:
         Instrumented C++ source as a string, ready to compile.
@@ -118,33 +138,25 @@ def instrument(source: str, source_path: str | None = None) -> str:
         scope = scope_map.get(point.func_name)
 
         if point.kind == InjectKind.FUNC_ENTER:
-            # Insert as first statement inside the function body.
-            # The opening brace is on point.line; insert AFTER that line.
             add_after(point.line, _trace_enter(point))
 
         elif point.kind == InjectKind.FUNC_EXIT:
-            # Insert a STATE snapshot before the return statement.
-            # We use add_before so it appears before the return, not after.
-            add_before(point.line, _trace_state(point, scope))
+            # Inject __TRACE_FUNC_EXIT before the return statement.
+            add_before(point.line, _trace_exit(point))
 
         elif point.kind == InjectKind.STATE:
-            # Don't insert STATE after a return — it would be unreachable.
             line_text = lines[point.line - 1] if point.line <= len(lines) else ""
             if "return" in line_text:
                 continue
-            # Don't insert STATE after a line that's followed by an else/else-if.
-            # That would break the if/else chain.
             next_line = lines[point.line].strip() if point.line < len(lines) else ""
             if next_line.startswith("else"):
                 continue
             add_after(point.line, _trace_state(point, scope))
 
         elif point.kind == InjectKind.BRANCH:
-            # Insert BEFORE the if/while line so we don't break if/else chains.
             add_before(point.line, _trace_branch(point))
 
         elif point.kind == InjectKind.LOOP_ITER:
-            # Insert AFTER the opening brace of the loop body.
             add_after(point.line, _trace_loop_iter(point))
 
     # ── Build output ──────────────────────────────────────────────────────────
@@ -162,14 +174,23 @@ def instrument(source: str, source_path: str | None = None) -> str:
     for i, line_text in enumerate(lines):
         line_num = i + 1  # 1-based
 
-        # Before insertions
         for text in insertions_before.get(line_num, []):
             output.append(text + "\n")
 
         output.append(line_text)
 
-        # After insertions
         for text in insertions_after.get(line_num, []):
             output.append(text + "\n")
 
-    return "".join(output)
+    instrumented = "".join(output)
+
+    # 4. If struct_schema provided, embed generated serializers as a comment-delimited
+    #    block that docker_runner will append to tracer.h
+    if struct_schema is not None:
+        generate = _get_serializer_gen()
+        serializer_code = generate(struct_schema)
+        if serializer_code:
+            # Embed as a special marker so docker_runner can extract and append to tracer.h
+            instrumented = f"// __STRUCT_SERIALIZERS_BEGIN__\n{serializer_code}\n// __STRUCT_SERIALIZERS_END__\n" + instrumented
+
+    return instrumented

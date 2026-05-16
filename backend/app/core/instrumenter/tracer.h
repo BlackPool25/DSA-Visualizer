@@ -184,6 +184,19 @@ std::string __ser(const std::unordered_map<K,V>& m) {
     return out + "}";
 }
 
+// Specialisation for string keys in unordered_map
+template<typename V>
+std::string __ser(const std::unordered_map<std::string,V>& m) {
+    std::string out = "{";
+    bool first = true;
+    for (const auto& [k, v] : m) {
+        if (!first) out += ",";
+        out += __ser(k) + ":" + __ser(v);
+        first = false;
+    }
+    return out + "}";
+}
+
 template<typename T>
 std::string __ser(const std::set<T>& s) {
     std::string out = "[";
@@ -194,6 +207,14 @@ std::string __ser(const std::set<T>& s) {
 
 template<typename T>
 std::string __ser(const std::unordered_set<T>& s) {
+    std::string out = "[";
+    bool first = true;
+    for (const auto& x : s) { if (!first) out += ","; out += __ser(x); first = false; }
+    return out + "]";
+}
+
+template<typename T>
+std::string __ser(const std::multiset<T>& s) {
     std::string out = "[";
     bool first = true;
     for (const auto& x : s) { if (!first) out += ","; out += __ser(x); first = false; }
@@ -270,6 +291,16 @@ std::string __vars_build(const char* name, const V& val, Rest&&... rest) {
             fprintf(stderr,                                                      \
                 "TRACE:{\"t\":\"exit\",\"l\":%d,\"f\":\"%s\",\"d\":%d,\"r\":%s}\n", \
                 line, func, depth, __ser(retval).c_str());                       \
+        }                                                                        \
+    } while(0)
+
+#define __TRACE_FUNC_EXIT_VOID(line, func, depth)                               \
+    do {                                                                         \
+        if (!__trace_active) {                                                   \
+            __TraceGuard __tg;                                                   \
+            fprintf(stderr,                                                      \
+                "TRACE:{\"t\":\"exit\",\"l\":%d,\"f\":\"%s\",\"d\":%d,\"r\":null}\n", \
+                line, func, depth);                                              \
         }                                                                        \
     } while(0)
 

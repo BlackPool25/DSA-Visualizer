@@ -45,7 +45,7 @@ async def execute(req: ExecuteRequest) -> ExecuteResponse:
     """
     # ── Step 1: Instrument ────────────────────────────────────────────────────
     try:
-        instrumented = instrument(req.code)
+        instrumented = instrument(req.code, struct_schema=req.struct_schema)
     except Exception as e:
         logger.exception("Instrumentation failed")
         raise HTTPException(status_code=422, detail=f"Instrumentation error: {e}")
@@ -81,6 +81,7 @@ async def execute(req: ExecuteRequest) -> ExecuteResponse:
         stdout=run_result.stdout,
         runtime_error=runtime_error,
         timed_out=run_result.timed_out,
+        truncated=run_result.truncated,
         trace=[e.model_dump(by_alias=False) for e in events],
         cfg_nodes=cfg_nodes,
         cfg_edges=cfg_edges,

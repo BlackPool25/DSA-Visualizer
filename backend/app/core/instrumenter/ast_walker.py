@@ -122,9 +122,82 @@ class ASTWalker:
         points: list[InjectionPoint] = []
         loop_counters: dict[str, list[str]] = {}
 
-        self._walk_cursor(tu.cursor, points, loop_counters, depth=0, func_name="", func_depth=0)
+        # First pass: collect all user-defined function names for depth tracking
+        user_functions: set[str] = set()
+        self._collect_user_functions(tu.cursor, user_functions)
+
+        # Second pass: walk with depth tracking
+        # depth_map: function_name → call depth (0 = top-level, 1 = called from top-level, etc.)
+        # We compute depth by BFS from main/entry points
+        depth_map = self._compute_call_depths(tu.cursor, user_functions)
+
+        self._walk_cursor(tu.cursor, points, loop_counters, depth=0, func_name="", func_depth=0, depth_map=depth_map)
 
         return WalkResult(injection_points=points, loop_counters=loop_counters)
+
+    def _collect_user_functions(self, cursor: clang.Cursor, result: set[str]) -> None:
+        """Collect names of all user-defined functions."""
+        if cursor.kind == clang.CursorKind.FUNCTION_DECL and cursor.is_definition():
+            if self._is_user_code(cursor):
+                result.add(cursor.spelling)
+        for child in cursor.get_children():
+            self._collect_user_functions(child, result)
+
+    def _compute_call_depths(self, root: clang.Cursor, user_functions: set[str]) -> dict[str, int]:
+        """Compute call depth for each user function.
+
+        Uses BFS from main() (depth 0). Functions not reachable from main
+        get depth 0 as well (they may be called from multiple places).
+        """
+        # Build call graph: caller → set of callees
+        call_graph: dict[str, set[str]] = {fn: set() for fn in user_functions}
+        self._build_call_graph(root, call_graph, user_functions, current_func="")
+
+        # BFS from main
+        depth_map: dict[str, int] = {}
+        start = "main" if "main" in user_functions else (next(iter(user_functions)) if user_functions else None)
+        if start is None:
+            return depth_map
+
+        from collections import deque
+        queue: deque[tuple[str, int]] = deque([(start, 0)])
+        visited: set[str] = set()
+
+        while queue:
+            fn, d = queue.popleft()
+            if fn in visited:
+                continue
+            visited.add(fn)
+            depth_map[fn] = d
+            for callee in call_graph.get(fn, set()):
+                if callee not in visited:
+                    queue.append((callee, d + 1))
+
+        # Assign depth 0 to any unreachable functions
+        for fn in user_functions:
+            if fn not in depth_map:
+                depth_map[fn] = 0
+
+        return depth_map
+
+    def _build_call_graph(
+        self,
+        cursor: clang.Cursor,
+        call_graph: dict[str, set[str]],
+        user_functions: set[str],
+        current_func: str,
+    ) -> None:
+        """Recursively build the call graph."""
+        if cursor.kind == clang.CursorKind.FUNCTION_DECL and cursor.is_definition():
+            if self._is_user_code(cursor):
+                current_func = cursor.spelling
+        elif cursor.kind == clang.CursorKind.CALL_EXPR:
+            callee = cursor.spelling
+            if current_func and callee in user_functions:
+                call_graph.setdefault(current_func, set()).add(callee)
+
+        for child in cursor.get_children():
+            self._build_call_graph(child, call_graph, user_functions, current_func)
 
     # ── Internal traversal ────────────────────────────────────────────────────
 
@@ -162,6 +235,31 @@ class ASTWalker:
         except Exception:
             return "?"
 
+    def _get_return_expr_text(self, return_cursor: clang.Cursor) -> str:
+        """Extract the return expression text from a RETURN_STMT cursor.
+
+        Returns empty string for void returns.
+        """
+        try:
+            children = list(return_cursor.get_children())
+            if not children:
+                return ""  # void return
+            expr = children[0]
+            start = expr.extent.start
+            end = expr.extent.end
+            with open(self.source_path, encoding="utf-8") as f:
+                lines = f.readlines()
+            if start.line == end.line:
+                line = lines[start.line - 1]
+                text = line[start.column - 1 : end.column - 1].strip()
+                # Avoid injecting complex expressions that might have side effects
+                # Only capture simple identifiers, literals, and arithmetic
+                if len(text) < 100 and "\n" not in text:
+                    return text
+            return ""
+        except Exception:
+            return ""
+
     def _walk_cursor(
         self,
         cursor: clang.Cursor,
@@ -170,6 +268,7 @@ class ASTWalker:
         depth: int,
         func_name: str,
         func_depth: int,
+        depth_map: dict[str, int] | None = None,
     ) -> None:
         """Recursively walk the AST."""
         kind = cursor.kind
@@ -182,7 +281,8 @@ class ASTWalker:
                 return
 
             fn = cursor.spelling
-            fn_depth = depth
+            # Use precomputed depth from call graph analysis
+            fn_depth = (depth_map or {}).get(fn, 0)
 
             # Collect parameter names
             params = [
@@ -220,7 +320,7 @@ class ASTWalker:
 
         # ── Recurse into non-function nodes ──────────────────────────────────
         for child in cursor.get_children():
-            self._walk_cursor(child, points, loop_counters, depth, func_name, func_depth)
+            self._walk_cursor(child, points, loop_counters, depth, func_name, func_depth, depth_map)
 
     def _walk_stmt(
         self,
@@ -238,12 +338,15 @@ class ASTWalker:
 
         # ── Return statement → FUNC_EXIT ──────────────────────────────────────
         if kind == clang.CursorKind.RETURN_STMT:
+            # Extract the return expression text for __TRACE_FUNC_EXIT
+            ret_expr = self._get_return_expr_text(cursor)
             points.append(InjectionPoint(
                 kind=InjectKind.FUNC_EXIT,
                 line=cursor.location.line,
                 col=cursor.location.column,
                 func_name=func_name,
                 depth=func_depth,
+                condition_text=ret_expr,  # reuse field to carry return expr
             ))
             return
 

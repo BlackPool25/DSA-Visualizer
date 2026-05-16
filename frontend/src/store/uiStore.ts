@@ -26,11 +26,12 @@ interface UIStore {
   errorMessage: string | null;
   stdout: string;
   compileError: string | null;
+  truncated: boolean;
 
   setCode: (code: string) => void;
   setRawInput: (input: string) => void;
   setAnalyzeResult: (cleaned: string, preview: string, schema: ProgramSchema) => void;
-  setExecuteResult: (stdout: string, compileError: string | null) => void;
+  setExecuteResult: (stdout: string, compileError: string | null, truncated?: boolean) => void;
   setStatus: (status: AppStatus) => void;
   setError: (msg: string) => void;
   reset: () => void;
@@ -69,6 +70,7 @@ export const useUIStore = create<UIStore>((set) => ({
   errorMessage: null,
   stdout: "",
   compileError: null,
+  truncated: false,
 
   setCode: (code) => set({ code }),
   setRawInput: (rawInput) => set({ rawInput }),
@@ -81,8 +83,8 @@ export const useUIStore = create<UIStore>((set) => ({
       status: "confirming",
     }),
 
-  setExecuteResult: (stdout, compileError) =>
-    set({ stdout, compileError, status: compileError ? "error" : "done" }),
+  setExecuteResult: (stdout, compileError, truncated = false) =>
+    set({ stdout, compileError, truncated, status: compileError ? "error" : "done" }),
 
   setStatus: (status) => set({ status }),
   setError: (msg) => set({ status: "error", errorMessage: msg }),
@@ -96,5 +98,6 @@ export const useUIStore = create<UIStore>((set) => ({
       errorMessage: null,
       stdout: "",
       compileError: null,
+      truncated: false,
     }),
 }));
