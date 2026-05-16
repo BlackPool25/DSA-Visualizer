@@ -1,241 +1,73 @@
 /**
- * CodeEditor Component
+ * components/Editor/CodeEditor.tsx — Monaco editor wrapper.
  *
- * Monaco Editor wrapper for C++ code editing.
- * Provides syntax highlighting, auto-layout, line highlighting for traces,
- * and basic editor configuration.
+ * Highlights the current trace line with a yellow gutter marker.
+ * Reads code from uiStore, writes back on change.
  */
 
-import { useRef, useEffect, useCallback } from "react";
 import Editor, { type Monaco } from "@monaco-editor/react";
-import type * as monaco from "monaco-editor";
+import type { editor } from "monaco-editor";
+import { useEffect, useRef } from "react";
+import { useTraceStore } from "../../store/traceStore";
+import { useUIStore } from "../../store/uiStore";
 
-/** Validation marker for displaying errors/warnings */
-export interface ValidationMarker {
-  /** Line number (1-based) */
-  line: number;
-  /** Error/warning message */
-  message: string;
-  /** Severity level */
-  severity: "error" | "warning";
-}
+export function CodeEditor() {
+  const code = useUIStore((s) => s.code);
+  const setCode = useUIStore((s) => s.setCode);
+  const currentEvent = useTraceStore((s) => s.currentEvent);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const decorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null);
 
-/** Props for the CodeEditor component */
-interface CodeEditorProps {
-  /** Current code value */
-  value: string;
-  /** Callback when code changes */
-  onChange: (value: string) => void;
-  /** Programming language for syntax highlighting (default: cpp) */
-  language?: string;
-  /** Whether the editor is read-only */
-  readOnly?: boolean;
-  /** Line number to highlight (1-based, for trace visualization) */
-  highlightLine?: number;
-  /** Validation markers to display (compilation errors, etc.) */
-  markers?: ValidationMarker[];
-  /** Editor color theme */
-  theme?: "vs-dark" | "vs-light";
-  /** Optional line to focus in view */
-  focusLine?: number | null;
-}
-
-/**
- * Monaco Editor wrapper for code editing
- *
- * Features:
- * - C++ syntax highlighting
- * - No minimap for cleaner UI
- * - Automatic layout adjustment
- * - Consistent font sizing
- * - Line highlighting for trace visualization
- *
- * @example
- * <CodeEditor
- *   value={code}
- *   onChange={setCode}
- *   language="cpp"
- *   highlightLine={currentTraceLine}
- * />
- */
-export function CodeEditor({
-  value,
-  onChange,
-  language = "cpp",
-  readOnly = false,
-  highlightLine,
-  markers = [],
-  theme = "vs-dark",
-  focusLine = null,
-}: CodeEditorProps) {
-  // Refs for editor and monaco instances
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const monacoRef = useRef<Monaco | null>(null);
-  const decorationsRef = useRef<string[]>([]);
-
-  /**
-   * Handle editor mount - store refs for decoration updates
-   */
-  const handleEditorMount = useCallback(
-    (editor: monaco.editor.IStandaloneCodeEditor, monaco: Monaco) => {
-      editorRef.current = editor;
-      monacoRef.current = monaco;
-    },
-    [],
-  );
-
-  /**
-   * Update line highlighting decorations when highlightLine changes
-   */
+  // Highlight the current trace line
   useEffect(() => {
-    const editor = editorRef.current;
-    const monaco = monacoRef.current;
+    const ed = editorRef.current;
+    if (!ed) return;
 
-    if (!editor || !monaco) return;
+    if (decorationsRef.current) {
+      decorationsRef.current.clear();
+    }
 
-    // Clear previous decorations
-    decorationsRef.current = editor.deltaDecorations(
-      decorationsRef.current,
-      [],
-    );
-
-    // Add new decoration if highlightLine is valid
-    if (highlightLine && highlightLine > 0) {
-      const newDecorations: monaco.editor.IModelDeltaDecoration[] = [
+    if (currentEvent) {
+      decorationsRef.current = ed.createDecorationsCollection([
         {
-          range: new monaco.Range(highlightLine, 1, highlightLine, 1),
+          range: {
+            startLineNumber: currentEvent.line,
+            startColumn: 1,
+            endLineNumber: currentEvent.line,
+            endColumn: 1,
+          },
           options: {
             isWholeLine: true,
             className: "current-line-highlight",
             glyphMarginClassName: "current-line-glyph",
-            overviewRuler: {
-              color: "rgba(245, 158, 11, 0.8)",
-              position: monaco.editor.OverviewRulerLane.Full,
-            },
           },
         },
-      ];
-
-      decorationsRef.current = editor.deltaDecorations(
-        decorationsRef.current,
-        newDecorations,
-      );
-
-      // Scroll to highlighted line if not visible
-      editor.revealLineInCenterIfOutsideViewport(highlightLine);
+      ]);
+      // Scroll to the highlighted line
+      ed.revealLineInCenterIfOutsideViewport(currentEvent.line);
     }
-  }, [highlightLine]);
+  }, [currentEvent]);
 
-  useEffect(() => {
-    if (!focusLine || !editorRef.current) return;
-    editorRef.current.revealLineInCenter(focusLine);
-    editorRef.current.setPosition({ lineNumber: focusLine, column: 1 });
-    editorRef.current.focus();
-  }, [focusLine]);
-
-  /**
-   * Update validation markers when they change
-   */
-  useEffect(() => {
-    const editor = editorRef.current;
-    const monaco = monacoRef.current;
-
-    if (!editor || !monaco) return;
-
-    if (markers.length === 0) {
-      monaco.editor.setModelMarkers(editor.getModel()!, "validation", []);
-      return;
-    }
-
-    // Convert markers to Monaco model markers
-    const modelMarkers = markers.map((marker) => ({
-      startLineNumber: marker.line,
-      startColumn: 1,
-      endLineNumber: marker.line,
-      endColumn: 1000, // Cover entire line
-      message: marker.message,
-      severity:
-        marker.severity === "error"
-          ? monaco.MarkerSeverity.Error
-          : monaco.MarkerSeverity.Warning,
-    }));
-
-    // Set markers on the model
-    monaco.editor.setModelMarkers(
-      editor.getModel()!,
-      "validation",
-      modelMarkers,
-    );
-
-    // Cleanup function to clear markers when component unmounts or markers change
-    return () => {
-      monaco.editor.setModelMarkers(editor.getModel()!, "validation", []);
-    };
-  }, [markers]);
+  function handleMount(ed: editor.IStandaloneCodeEditor, _monaco: Monaco) {
+    editorRef.current = ed;
+  }
 
   return (
-    <div className="h-full w-full min-h-[400px] border border-gray-200 rounded-lg overflow-hidden">
-      {/* Custom CSS for line highlighting */}
-      <style>{`
-        .current-line-highlight {
-          background-color: rgba(245, 158, 11, 0.15) !important;
-          border-left: 3px solid #f59e0b !important;
-        }
-        .current-line-glyph {
-          background-color: #f59e0b;
-          margin-left: 3px;
-          border-radius: 2px;
-        }
-        .current-line-glyph::before {
-          content: '▶';
-          color: white;
-          font-size: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-        }
-      `}</style>
-
-      <Editor
-        value={value}
-        language={language}
-        theme={theme}
-        onChange={(newValue) => onChange(newValue || "")}
-        onMount={handleEditorMount}
-        options={{
-          // Editor appearance
-          fontSize: 14,
-          lineNumbers: "on",
-          roundedSelection: false,
-          scrollBeyondLastLine: false,
-          readOnly,
-
-          // Disable minimap for cleaner UI
-          minimap: { enabled: false },
-
-          // Automatic layout to handle resizing
-          automaticLayout: true,
-
-          // Tab settings for consistent formatting
-          tabSize: 2,
-          insertSpaces: true,
-
-          // Show whitespace for debugging
-          renderWhitespace: "selection",
-
-          // Line wrapping
-          wordWrap: "on",
-
-          // Enable glyph margin for line indicators
-          glyphMargin: true,
-        }}
-        loading={
-          <div className="h-full w-full flex items-center justify-center bg-gray-900 text-white">
-            Loading editor...
-          </div>
-        }
-      />
-    </div>
+    <Editor
+      height="100%"
+      language="cpp"
+      theme="vs-dark"
+      value={code}
+      onChange={(v) => setCode(v ?? "")}
+      onMount={handleMount}
+      options={{
+        fontSize: 13,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        glyphMargin: true,
+        lineNumbers: "on",
+        wordWrap: "on",
+      }}
+    />
   );
 }
